@@ -19,4 +19,4 @@ COPY . .
 EXPOSE 10000
 
 # Render provides PORT at runtime. Locally this falls back to 10000.
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
