@@ -19,7 +19,7 @@ from downloader import (
     get_video_info,
 )
 
-STATIC_DIR = Path(__file__).parent / "static"
+STATIC_DIR = Path(__file__).parent
 
 app = FastAPI(
     title="YouTube Music API",
