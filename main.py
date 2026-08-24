@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from app.downloader import (
+from downloader import (
     DownloadFailedError,
     InvalidYouTubeURLError,
     download_audio,
