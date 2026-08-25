@@ -102,6 +102,7 @@ def _get_cookie_file() -> str | None:
     """
     Look for cookies to pass to yt-dlp. Order of precedence:
     1. YTDLP_COOKIES_FILE environment variable (path to a cookies.txt file)
+       - If a basename is provided, also try /etc/secrets/<basename> (Render-style secrets)
     2. YTDLP_COOKIES_B64 environment variable (base64-encoded cookies file contents)
     3. YTDLP_COOKIES environment variable (raw cookies file contents)
     4. /app/cookies.txt (useful in Docker)
@@ -121,6 +122,13 @@ def _get_cookie_file() -> str | None:
 
         if path.is_file():
             return str(path)
+
+        # If the user provided a basename (like 'cookies.txt'), many PaaS
+        # (e.g. Render) expose secret files under /etc/secrets/<name>.
+        # Try that location when the exact path wasn't found.
+        secrets_path = Path("/etc/secrets") / path.name
+        if secrets_path.is_file():
+            return str(secrets_path)
 
     # Support base64-encoded cookies in an env var (useful for CI / Docker secrets)
     b64 = os.environ.get("YTDLP_COOKIES_B64")
@@ -157,6 +165,11 @@ def _get_cookie_file() -> str | None:
 
     if default_path.is_file():
         return str(default_path)
+
+    # Also try Render-style secret location directly as a fallback
+    etc_secret = Path("/etc/secrets/cookies.txt")
+    if etc_secret.is_file():
+        return str(etc_secret)
 
     local_path = (
         Path(__file__).resolve().parent
@@ -236,10 +249,11 @@ def _base_ydl_options() -> dict[str, Any]:
             "Upgrade-Insecure-Requests": "1",
         },
 
+        # For YouTube extractor: prefer the web player and allow the JS player
+        # (do not skip JS). Some videos require the JS player to be parsed.
         "extractor_args": {
             "youtube": {
-                "player_client": ["web", "mweb", "android"],
-                "player_skip": ["js", "webpage"],
+                "player_client": ["web"],
                 "skip": ["hls", "dash"],
             }
         },
@@ -288,26 +302,6 @@ def get_video_info(
             )
 
     except DownloadError as exc:
-
-        message = str(exc)
-
-        # If the error indicates login is required, do NOT attempt the browser fallback here
-        # because some yt-dlp versions expose an internal API that can raise TypeError
-        # in certain environments. Instead, surface a clear error to the client
-        # explaining how to provide cookies.
-        if (
-            "Sign in to confirm" in message
-            or "LOGIN_REQUIRED" in message
-        ):
-            raise DownloadFailedError(
-                "YouTube está bloqueando esta solicitud. Proporciona cookies válidas para yt-dlp.\n\n"
-                "Opciones:\n"
-                " - Monta un archivo cookies.txt en /app/cookies.txt dentro del contenedor.\n"
-                " - Establece la variable de entorno YTDLP_COOKIES_FILE con la ruta al archivo cookies.txt.\n"
-                " - Establece la variable de entorno YTDLP_COOKIES_B64 con el contenido base64 del archivo cookies.txt.\n"
-                " - Establece la variable de entorno YTDLP_COOKIES con el contenido raw del archivo cookies.txt.\n\n"
-                "Consulta: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"
-            ) from exc
 
         raise DownloadFailedError(
             str(exc)
