@@ -591,6 +591,7 @@
 
   downloadBtn.addEventListener('click', async () => {
     if (!currentUrl) return;
+
     const format = selectedFormat();
 
     downloadBtn.disabled = true;
@@ -598,44 +599,149 @@
     downloadBtnLabel.textContent = 'Descargando…';
     downloadStatus.hidden = true;
 
+    openDownloadModal();
+
+    downloadController = new AbortController();
+
     try {
       const response = await fetch('/api/download', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: currentUrl, format }),
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          url: currentUrl,
+          format
+        }),
+        signal: downloadController.signal
       });
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || 'No se pudo completar la descarga.');
+        throw new Error(
+          data.detail || 'No se pudo completar la descarga.'
+        );
       }
 
-      const disposition = response.headers.get('Content-Disposition') || '';
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match ? match[1] : `audio.${format}`;
+      const total = Number(response.headers.get('Content-Length')) || 0;
 
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
+      const disposition =
+        response.headers.get('Content-Disposition') || '';
+
+      const match = disposition.match(/filename="?([^"]+)"?/);
+
+      const filename =
+        match ? match[1] : `audio.${format}`;
+
+      if (!response.body) {
+        throw new Error('El navegador no permite mostrar el progreso.');
+      }
+
+      const reader = response.body.getReader();
+
+      const chunks = [];
+      let received = 0;
+
+      const startTime = performance.now();
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        chunks.push(value);
+        received += value.length;
+
+        const elapsed =
+          (performance.now() - startTime) / 1000;
+
+        const speed =
+          elapsed > 0 ? received / elapsed : 0;
+
+        const percent =
+          total > 0
+            ? (received / total) * 100
+            : 0;
+
+        const remaining =
+          total > 0 && speed > 0
+            ? (total - received) / speed
+            : null;
+
+        updateDownloadProgress(
+          percent,
+          received,
+          total,
+          speed,
+          remaining
+        );
+      }
+
+      updateDownloadProgress(
+        100,
+        received,
+        total,
+        0,
+        0
+      );
+
+      const blob = new Blob(chunks);
+
+      const objectUrl =
+        URL.createObjectURL(blob);
+
+      const link =
+        document.createElement('a');
+
       link.href = objectUrl;
       link.download = filename;
+
       document.body.appendChild(link);
       link.click();
       link.remove();
+
       URL.revokeObjectURL(objectUrl);
+
+      await new Promise(resolve =>
+        setTimeout(resolve, 500)
+      );
+
+      closeDownloadModal();
 
       downloadStatus.textContent =
         format === 'wav'
           ? 'Descarga completa.'
           : 'Descarga completa, con portada incluida.';
+
       downloadStatus.hidden = false;
+
     } catch (error) {
-      downloadStatus.textContent = error.message || 'No se pudo completar la descarga.';
+
+      if (error.name === 'AbortError') {
+        downloadStatus.textContent =
+          'Descarga cancelada.';
+      } else {
+        downloadStatus.textContent =
+          error.message ||
+          'No se pudo completar la descarga.';
+      }
+
       downloadStatus.hidden = false;
+
+      closeDownloadModal();
+
     } finally {
+
+      downloadController = null;
+
       downloadBtn.disabled = false;
       downloadBtn.classList.remove('loading');
       downloadBtnLabel.textContent = 'Descargar';
     }
   });
-})();
+  
+  cancelDownloadBtn.addEventListener('click', () => {
+    if (downloadController) {
+      downloadController.abort();
+    }
+  });
