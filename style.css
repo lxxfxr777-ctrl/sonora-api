@@ -870,3 +870,284 @@ body.cover-black .url-input {
 body.cover-black .link-panel .field-label {
   color: rgba(255, 255, 255, 0.72);
 }
+/* =========================================================
+   VENTANA DE PROGRESO DE DESCARGA
+   ========================================================= */
+
+.download-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+
+  background: rgba(0, 0, 0, 0.42);
+
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  animation: download-overlay-in 0.22s ease;
+}
+
+.download-overlay[hidden] {
+  display: none;
+}
+
+.download-modal {
+  position: relative;
+
+  width: min(620px, 94vw);
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(15, 15, 17, 0.97),
+      rgba(8, 8, 9, 0.98)
+    );
+
+  border: 1px solid var(--red);
+  border-radius: 18px;
+
+  padding: 16px;
+
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.72),
+    0 0 45px var(--red-soft);
+
+  overflow: hidden;
+
+  animation: download-modal-in 0.28s ease;
+}
+
+.download-modal::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  z-index: -1;
+
+  background:
+    radial-gradient(
+      circle,
+      var(--red-glow),
+      transparent 60%
+    );
+
+  opacity: 0.12;
+  filter: blur(40px);
+}
+
+.download-modal-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+}
+
+.download-modal-cover {
+  width: 72px;
+  height: 72px;
+
+  flex-shrink: 0;
+
+  object-fit: cover;
+
+  border-radius: 11px;
+
+  border: 1px solid var(--red);
+
+  box-shadow:
+    0 8px 25px rgba(0, 0, 0, 0.5),
+    0 0 20px var(--red-soft);
+}
+
+.download-modal-info {
+  flex: 1;
+  min-width: 0;
+  padding-right: 28px;
+}
+
+.download-modal-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+
+  color: var(--red);
+
+  margin-bottom: 2px;
+}
+
+.download-modal-info h3 {
+  margin: 0 0 10px;
+
+  color: #fff;
+
+  font-size: 0.95rem;
+  font-weight: 600;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.download-progress-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  margin-bottom: 6px;
+
+  font-size: 0.72rem;
+  font-weight: 600;
+
+  color: rgba(255, 255, 255, 0.65);
+
+  font-variant-numeric: tabular-nums;
+}
+
+#download-percent {
+  color: var(--red);
+  font-weight: 800;
+}
+
+.download-progress-track {
+  width: 100%;
+  height: 7px;
+
+  background: rgba(255, 255, 255, 0.1);
+
+  border-radius: 999px;
+
+  overflow: hidden;
+}
+
+.download-progress-bar {
+  width: 0%;
+  height: 100%;
+
+  border-radius: inherit;
+
+  background:
+    linear-gradient(
+      90deg,
+      var(--red-deep),
+      var(--red),
+      var(--red-hover)
+    );
+
+  box-shadow:
+    0 0 14px var(--red-glow);
+
+  transition: width 0.18s linear;
+}
+
+.download-details {
+  display: flex;
+  justify-content: space-between;
+
+  margin-top: 7px;
+
+  font-size: 0.68rem;
+
+  color: rgba(255, 255, 255, 0.55);
+
+  font-variant-numeric: tabular-nums;
+}
+
+.cancel-download-btn {
+  position: absolute;
+
+  top: 10px;
+  right: 10px;
+
+  width: 28px;
+  height: 28px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 50%;
+
+  border: 1px solid rgba(255, 255, 255, 0.18);
+
+  background: rgba(255, 255, 255, 0.07);
+
+  color: rgba(255, 255, 255, 0.7);
+
+  font-size: 1.25rem;
+  line-height: 1;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.15s ease;
+}
+
+.cancel-download-btn:hover {
+  background: var(--red);
+  color: #fff;
+  transform: scale(1.06);
+}
+
+body.download-open {
+  overflow: hidden;
+}
+
+@keyframes download-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes download-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+
+  .download-modal {
+    width: 94vw;
+    padding: 13px;
+  }
+
+  .download-modal-cover {
+    width: 58px;
+    height: 58px;
+  }
+
+  .download-modal-info h3 {
+    font-size: 0.85rem;
+  }
+
+  .download-details {
+    font-size: 0.62rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .download-overlay,
+  .download-modal {
+    animation: none;
+  }
+
+  .download-progress-bar {
+    transition: none;
+  }
+}
