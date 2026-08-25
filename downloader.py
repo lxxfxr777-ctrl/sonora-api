@@ -113,7 +113,15 @@ def get_video_info(url: str) -> dict[str, Any]:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
+        # Aunque skip_download=True no descarga nada, yt-dlp igual intenta
+        # resolver qué formato usaría (para reportar datos como duración y
+        # calidad), y con solo "skip_download" seguía usando el selector de
+        # formato por defecto, que fallaba para ciertos videos. Se le da el
+        # mismo selector con respaldos que en la descarga real para evitar
+        # el mismo error "Requested format is not available" en la vista
+        # previa.
+        "format": "bestaudio/best/251/140",
+        "extractor_args": {"youtube": {"player_client": ["web", "android", "ios"]}},
     }
 
     cookies_file = _get_cookies_file()
@@ -166,7 +174,7 @@ def _build_ydl_options(
         # frecuentemente qué formatos expone cada cliente, y probar con
         # varios reduce el riesgo de toparse con "Requested format is not
         # available".
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
+        "extractor_args": {"youtube": {"player_client": ["web", "android", "ios"]}},
     }
 
     cookies_file = _get_cookies_file()
