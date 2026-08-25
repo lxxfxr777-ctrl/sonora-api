@@ -113,7 +113,7 @@ def get_video_info(url: str) -> dict[str, Any]:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
     }
 
     cookies_file = _get_cookies_file()
@@ -155,11 +155,18 @@ def _build_ydl_options(
     ]
 
     options: dict[str, Any] = {
-        "format": "bestaudio/best",
+        # Se agregan alternativas de formato como respaldo: si "bestaudio"
+        # no está disponible para este video/cliente en particular, prueba
+        # con las siguientes opciones antes de fallar.
+        "format": "bestaudio/best/251/140",
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        # Se agrega "ios" como tercer cliente de respaldo: YouTube cambia
+        # frecuentemente qué formatos expone cada cliente, y probar con
+        # varios reduce el riesgo de toparse con "Requested format is not
+        # available".
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
     }
 
     cookies_file = _get_cookies_file()
