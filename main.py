@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse
+import base64
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -55,7 +57,7 @@ def api_root() -> dict[str, str]:
     return {
         "message": "YouTube Music API",
         "docs": "/docs",
-        "endpoints": "/api/info, /api/download",
+        "endpoints": "/api/info, /api/download, /api/cookies",
     }
 
 
@@ -121,6 +123,120 @@ def cover_proxy(
         content=data,
         media_type=content_type,
     )
+
+
+# --- Cookies management endpoints ---
+
+COOKIES_DEST = Path("/app/cookies.txt")
+
+
+@app.post("/api/cookies/upload")
+async def upload_cookies(file: UploadFile = File(...)) -> dict:
+    """Upload a cookies.txt file (multipart/form-data, field: file).
+
+    The file is written to /app/cookies.txt and will be used by yt-dlp.
+    """
+    try:
+        data = await file.read()
+        COOKIES_DEST.parent.mkdir(parents=True, exist_ok=True)
+        COOKIES_DEST.write_bytes(data)
+        try:
+            os.chmod(COOKIES_DEST, 0o600)
+        except Exception:
+            pass
+        return {"status": "ok", "path": str(COOKIES_DEST)}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo guardar el archivo de cookies.",
+        ) from exc
+
+
+@app.post("/api/cookies/b64")
+def upload_cookies_b64(body: dict = Body(...)) -> dict:
+    """Upload cookies via base64-encoded content in JSON: {"cookies_b64": "..."}.
+
+    Useful for CI or secret managers.
+    """
+    b64 = body.get("cookies_b64")
+
+    if not b64:
+        raise HTTPException(
+            status_code=400,
+            detail="Proporciona 'cookies_b64' en el cuerpo.",
+        )
+
+    try:
+        data = base64.b64decode(b64)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Contenido base64 inválido.",
+        ) from exc
+
+    try:
+        COOKIES_DEST.parent.mkdir(parents=True, exist_ok=True)
+        COOKIES_DEST.write_bytes(data)
+        try:
+            os.chmod(COOKIES_DEST, 0o600)
+        except Exception:
+            pass
+        return {"status": "ok", "path": str(COOKIES_DEST)}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo escribir el archivo de cookies.",
+        ) from exc
+
+
+@app.post("/api/cookies/raw")
+def upload_cookies_raw(body: dict = Body(...)) -> dict:
+    """Upload raw cookies file content via JSON: {"cookies": "<text>"}.
+
+    Less secure (exposes cookies in logs) but available for convenience.
+    """
+    raw = body.get("cookies")
+
+    if raw is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Proporciona 'cookies' en el cuerpo.",
+        )
+
+    try:
+        COOKIES_DEST.parent.mkdir(parents=True, exist_ok=True)
+        COOKIES_DEST.write_text(raw)
+        try:
+            os.chmod(COOKIES_DEST, 0o600)
+        except Exception:
+            pass
+        return {"status": "ok", "path": str(COOKIES_DEST)}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo escribir el archivo de cookies.",
+        ) from exc
+
+
+@app.get("/api/cookies/status")
+def cookies_status() -> dict:
+    """Return if cookies are available and where they're read from.
+
+    This uses the downloader._get_cookie_file() helper to show which file (if any)
+    yt-dlp will use according to current environment and filesystem.
+    """
+    try:
+        # Import here to avoid circular import at module load time
+        from downloader import _get_cookie_file
+
+        path = _get_cookie_file()
+
+        return {"cookies_file": path, "exists": (Path(path).is_file() if path else False)}
+    except Exception:
+        return {"cookies_file": None, "exists": False}
+
+
+# --- End cookies endpoints ---
 
 
 @app.post("/api/download")
