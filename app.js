@@ -15,12 +15,8 @@
   const formatNote = document.getElementById('format-note');
 
   const downloadBtn = document.getElementById('download-btn');
-  const downloadBtnLabel = downloadBtn
-    ? downloadBtn.querySelector('.download-btn-label')
-    : null;
-
+  const downloadBtnLabel = downloadBtn.querySelector('.download-btn-label');
   const downloadStatus = document.getElementById('download-status');
-
   const coverStage = document.querySelector('.cover-stage');
   const playBtn = document.getElementById('play-btn');
   const playIcon = document.getElementById('play-icon');
@@ -31,11 +27,7 @@
   const playerNow = document.getElementById('player-now');
   const playerStatus = document.getElementById('player-status');
 
-  /*
-   * Ya no utilizamos la ventana emergente de descarga.
-   * Se mantienen estas referencias solamente por compatibilidad
-   * con el HTML existente.
-   */
+  // Ventana de progreso de descarga
   const downloadOverlay = document.getElementById('download-overlay');
   const downloadModalCover = document.getElementById('download-modal-cover');
   const downloadModalTitle = document.getElementById('download-modal-title');
@@ -50,7 +42,6 @@
 
   let currentUrl = '';
   let currentVideoId = '';
-
   let ytPlayer = null;
   let ytReady = false;
   let ytApiPromise = null;
@@ -110,9 +101,7 @@
     const secs = total % 60;
 
     if (hours > 0) {
-      return `${hours}:${minutes
-        .toString()
-        .padStart(2, '0')}:${secs
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs
         .toString()
         .padStart(2, '0')}`;
     }
@@ -142,13 +131,9 @@
     let h = 0;
 
     if (d !== 0) {
-      if (max === r) {
-        h = ((g - b) / d) % 6;
-      } else if (max === g) {
-        h = (b - r) / d + 2;
-      } else {
-        h = (r - g) / d + 4;
-      }
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
 
       h /= 6;
 
@@ -163,7 +148,6 @@
   function hsvToRgb(h, s, v) {
     const i = Math.floor(h * 6);
     const f = h * 6 - i;
-
     const p = v * (1 - s);
     const q = v * (1 - f * s);
     const t = v * (1 - (1 - f) * s);
@@ -198,7 +182,6 @@
   function paletteFromRgb(r, g, b) {
     const [ar, ag, ab] = vividize(r, g, b);
     const [h] = rgbToHsv(ar, ag, ab);
-
     const [lr, lg, lb] = hsvToRgb(h, 0.82, 0.98);
     const [dr, dg, db] = hsvToRgb(h, 0.95, 0.52);
     const [hr, hg, hb] = hsvToRgb(h, 0.9, 1);
@@ -218,26 +201,162 @@
     };
   }
 
+  function extractPaletteFromImage(img) {
+    const canvas = document.createElement('canvas');
+
+    canvas.width = 64;
+    canvas.height = 64;
+
+    const ctx = canvas.getContext('2d', {
+      willReadFrequently: true,
+    });
+
+    if (!ctx) return null;
+
+    ctx.drawImage(img, 0, 0, 64, 64);
+
+    const { data } = ctx.getImageData(
+      0,
+      0,
+      64,
+      64
+    );
+
+    const buckets = new Map();
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+
+      const [, s, v] = rgbToHsv(r, g, b);
+
+      if (
+        v < 0.14 ||
+        v > 0.97 ||
+        s < 0.12
+      ) {
+        continue;
+      }
+
+      const key =
+        `${r >> 4}_${g >> 4}_${b >> 4}`;
+
+      const weight =
+        (1 + s * 2.6) *
+        (0.55 + Math.min(v, 0.9));
+
+      const current =
+        buckets.get(key) || {
+          r,
+          g,
+          b,
+          score: 0,
+        };
+
+      current.score += weight;
+
+      buckets.set(key, current);
+    }
+
+    const ranked =
+      [...buckets.values()]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 12);
+
+    if (!ranked.length) return null;
+
+    let best = ranked[0];
+    let bestVivid = -1;
+
+    for (const color of ranked) {
+      const [, s, v] =
+        rgbToHsv(
+          color.r,
+          color.g,
+          color.b
+        );
+
+      const vivid =
+        color.score *
+        (0.35 + s) *
+        (0.4 + v);
+
+      if (vivid > bestVivid) {
+        bestVivid = vivid;
+        best = color;
+      }
+    }
+
+    return paletteFromRgb(
+      best.r,
+      best.g,
+      best.b
+    );
+  }
+
   function applyPalette(palette) {
     const colors = {
       ...DEFAULT_PALETTE,
       ...(palette || {}),
     };
 
-    const root = document.documentElement;
+    const root =
+      document.documentElement;
 
-    root.style.setProperty('--red', colors.accent);
-    root.style.setProperty('--red-hover', colors.accent_hover);
-    root.style.setProperty('--red-deep', colors.accent_deep);
-    root.style.setProperty('--red-soft', colors.accent_soft);
-    root.style.setProperty('--red-glow', colors.accent_glow);
-    root.style.setProperty('--bg-top', colors.bg_top);
-    root.style.setProperty('--bg-side', colors.bg_side);
-    root.style.setProperty('--aurora-1', colors.aurora_1);
-    root.style.setProperty('--aurora-2', colors.aurora_2);
-    root.style.setProperty('--aurora-3', colors.aurora_3);
+    root.style.setProperty(
+      '--red',
+      colors.accent
+    );
 
-    document.body.classList.add('themed');
+    root.style.setProperty(
+      '--red-hover',
+      colors.accent_hover
+    );
+
+    root.style.setProperty(
+      '--red-deep',
+      colors.accent_deep
+    );
+
+    root.style.setProperty(
+      '--red-soft',
+      colors.accent_soft
+    );
+
+    root.style.setProperty(
+      '--red-glow',
+      colors.accent_glow
+    );
+
+    root.style.setProperty(
+      '--bg-top',
+      colors.bg_top
+    );
+
+    root.style.setProperty(
+      '--bg-side',
+      colors.bg_side
+    );
+
+    root.style.setProperty(
+      '--aurora-1',
+      colors.aurora_1
+    );
+
+    root.style.setProperty(
+      '--aurora-2',
+      colors.aurora_2
+    );
+
+    root.style.setProperty(
+      '--aurora-3',
+      colors.aurora_3
+    );
+
+    document.body.classList.add(
+      'themed'
+    );
 
     document.body.classList.toggle(
       'cover-black',
@@ -263,54 +382,212 @@
     );
   }
 
+  function coverSrc(thumbnail) {
+    if (!thumbnail) return '';
+
+    return `/api/cover?src=${encodeURIComponent(
+      thumbnail
+    )}`;
+  }
+
+  function formatBytes(bytes) {
+    if (
+      !Number.isFinite(bytes) ||
+      bytes <= 0
+    ) {
+      return '—';
+    }
+
+    const units = [
+      'B',
+      'KB',
+      'MB',
+      'GB',
+    ];
+
+    let value = bytes;
+    let unit = 0;
+
+    while (
+      value >= 1024 &&
+      unit < units.length - 1
+    ) {
+      value /= 1024;
+      unit++;
+    }
+
+    return `${value.toFixed(
+      unit === 0 ? 0 : 1
+    )} ${units[unit]}`;
+  }
+
+  function formatEta(seconds) {
+    if (
+      !Number.isFinite(seconds) ||
+      seconds < 0
+    ) {
+      return '—';
+    }
+
+    const total =
+      Math.round(seconds);
+
+    const minutes =
+      Math.floor(total / 60);
+
+    const secs =
+      total % 60;
+
+    if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    }
+
+    return `${secs}s`;
+  }
+
+  function openDownloadModal() {
+    downloadOverlay.hidden = false;
+
+    document.body.classList.add(
+      'download-open'
+    );
+
+    downloadModalCover.src =
+      previewThumb.src;
+
+    downloadModalTitle.textContent =
+      previewTitle.textContent ||
+      'Descargando canción';
+
+    downloadPercent.textContent =
+      '0%';
+
+    downloadSize.textContent =
+      'Preparando...';
+
+    downloadProgressBar.style.width =
+      '0%';
+
+    downloadSpeed.textContent =
+      '⚡ —';
+
+    downloadEta.textContent =
+      '⏱ —';
+  }
+
+  function closeDownloadModal() {
+    downloadOverlay.hidden = true;
+
+    document.body.classList.remove(
+      'download-open'
+    );
+  }
+
+  function updateDownloadProgress(
+    percent,
+    downloaded,
+    total,
+    speed,
+    eta
+  ) {
+    const safePercent =
+      Math.min(
+        100,
+        Math.max(
+          0,
+          Number(percent) || 0
+        )
+      );
+
+    downloadPercent.textContent =
+      `${safePercent.toFixed(0)}%`;
+
+    downloadProgressBar.style.width =
+      `${safePercent}%`;
+
+    if (total > 0) {
+      downloadSize.textContent =
+        `${formatBytes(downloaded)} / ${formatBytes(
+          total
+        )}`;
+    } else {
+      downloadSize.textContent =
+        formatBytes(downloaded);
+    }
+
+    downloadSpeed.textContent =
+      `⚡ ${
+        speed
+          ? formatBytes(speed) + '/s'
+          : '—'
+      }`;
+
+    downloadEta.textContent =
+      `⏱ ${
+        eta !== null &&
+        eta !== undefined
+          ? formatEta(eta)
+          : '—'
+      }`;
+  }
+
   function setSearchLoading(loading) {
     searchBtn.disabled = loading;
-    searchBtn.textContent = loading
-      ? 'Buscando…'
-      : 'Vista previa';
+
+    searchBtn.textContent =
+      loading
+        ? 'Cargando…'
+        : 'Vista previa';
   }
 
   function showError(message) {
-    searchError.textContent = message;
+    searchError.textContent =
+      message;
+
     searchError.hidden = false;
   }
 
   function clearError() {
     searchError.hidden = true;
+
     searchError.textContent = '';
   }
 
   function selectedFormat() {
-    const checked = document.querySelector(
-      'input[name="format"]:checked'
-    );
+    const checked =
+      document.querySelector(
+        'input[name="format"]:checked'
+      );
 
-    return checked ? checked.value : 'mp3';
+    return checked
+      ? checked.value
+      : 'mp3';
   }
 
   function updateFormatUI() {
-    const format = selectedFormat();
+    const format =
+      selectedFormat();
 
     previewFormatLabel.textContent =
       format.toUpperCase();
 
-    formatNote.hidden = format !== 'wav';
+    formatNote.hidden =
+      format !== 'wav';
   }
 
-  formatInputs.forEach((input) => {
-    input.addEventListener(
-      'change',
-      updateFormatUI
-    );
-  });
+  formatInputs.forEach(
+    (input) =>
+      input.addEventListener(
+        'change',
+        updateFormatUI
+      )
+  );
 
-  /*
-   * YouTube API se carga únicamente cuando el usuario
-   * quiere reproducir. Esto hace que la búsqueda sea
-   * mucho más rápida.
-   */
   function loadYouTubeApi() {
-    if (window.YT && window.YT.Player) {
+    if (
+      window.YT &&
+      window.YT.Player
+    ) {
       return Promise.resolve();
     }
 
@@ -318,57 +595,58 @@
       return ytApiPromise;
     }
 
-    ytApiPromise = new Promise((resolve) => {
-      const previous =
-        window.onYouTubeIframeAPIReady;
+    ytApiPromise =
+      new Promise((resolve) => {
+        const previous =
+          window.onYouTubeIframeAPIReady;
 
-      window.onYouTubeIframeAPIReady = () => {
-        if (typeof previous === 'function') {
-          previous();
-        }
+        window.onYouTubeIframeAPIReady =
+          () => {
+            if (
+              typeof previous ===
+              'function'
+            ) {
+              previous();
+            }
 
-        resolve();
-      };
+            resolve();
+          };
 
-      const script =
-        document.createElement('script');
+        const script =
+          document.createElement(
+            'script'
+          );
 
-      script.src =
-        'https://www.youtube.com/iframe_api';
+        script.src =
+          'https://www.youtube.com/iframe_api';
 
-      document.head.appendChild(script);
-    });
+        document.head.appendChild(
+          script
+        );
+      });
 
     return ytApiPromise;
   }
 
   function setPlayingUi(playing) {
-    if (playIcon) {
-      playIcon.hidden = playing;
-    }
+    playIcon.hidden = playing;
 
-    if (pauseIcon) {
-      pauseIcon.hidden = !playing;
-    }
+    pauseIcon.hidden = !playing;
 
-    if (playBtn) {
-      playBtn.setAttribute(
-        'aria-label',
-        playing ? 'Pausar' : 'Reproducir'
-      );
-    }
+    playBtn.setAttribute(
+      'aria-label',
+      playing
+        ? 'Pausar'
+        : 'Reproducir'
+    );
 
-    if (coverStage) {
-      coverStage.classList.toggle(
-        'is-playing',
-        playing
-      );
-    }
+    coverStage.classList.toggle(
+      'is-playing',
+      playing
+    );
   }
 
   function setPlayerMessage(message) {
-    if (!playerStatus) return;
-
     if (!message) {
       playerStatus.hidden = true;
       playerStatus.textContent = '';
@@ -376,7 +654,8 @@
     }
 
     playerStatus.hidden = false;
-    playerStatus.textContent = message;
+    playerStatus.textContent =
+      message;
   }
 
   function stopProgress() {
@@ -390,7 +669,8 @@
     if (
       !ytPlayer ||
       seeking ||
-      typeof ytPlayer.getCurrentTime !== 'function'
+      typeof ytPlayer.getCurrentTime !==
+        'function'
     ) {
       return;
     }
@@ -402,8 +682,11 @@
       ytPlayer.getCurrentTime() || 0;
 
     if (duration > 0) {
-      seekBar.max = String(duration);
-      seekBar.value = String(current);
+      seekBar.max =
+        String(duration);
+
+      seekBar.value =
+        String(current);
 
       timeTotal.textContent =
         formatDuration(duration);
@@ -419,7 +702,10 @@
     updateProgress();
 
     progressTimer =
-      setInterval(updateProgress, 400);
+      setInterval(
+        updateProgress,
+        400
+      );
   }
 
   function destroyPlayer() {
@@ -429,134 +715,159 @@
 
     if (
       ytPlayer &&
-      typeof ytPlayer.destroy === 'function'
+      typeof ytPlayer.destroy ===
+        'function'
     ) {
       try {
         ytPlayer.destroy();
       } catch (_error) {
-        // Ignorar errores al destruir.
+        /* ignore */
       }
     }
 
     ytPlayer = null;
     ytReady = false;
 
-    if (seekBar) {
-      seekBar.value = '0';
-    }
+    seekBar.value = '0';
 
-    if (timeCurrent) {
-      timeCurrent.textContent = '0:00';
-    }
+    timeCurrent.textContent =
+      '0:00';
 
-    const oldPlayer =
-      document.getElementById('yt-player');
-
-    if (oldPlayer) {
-      oldPlayer.remove();
-    }
-
-    const playerPanel =
-      document.querySelector('.player-panel');
-
-    if (playerPanel) {
+    if (
+      !document.getElementById(
+        'yt-player'
+      )
+    ) {
       const fresh =
-        document.createElement('div');
+        document.createElement(
+          'div'
+        );
 
       fresh.id = 'yt-player';
       fresh.className = 'yt-player';
 
-      playerPanel.prepend(fresh);
+      document
+        .querySelector(
+          '.player-panel'
+        )
+        .prepend(fresh);
     }
   }
 
   function ensurePlayer() {
     if (ytPlayer) {
-      return Promise.resolve(ytPlayer);
+      return Promise.resolve(
+        ytPlayer
+      );
     }
 
     return loadYouTubeApi().then(
       () =>
-        new Promise((resolve, reject) => {
-          ytPlayer =
-            new window.YT.Player(
-              'yt-player',
-              {
-                height: '1',
-                width: '1',
-                videoId: currentVideoId,
+        new Promise(
+          (resolve, reject) => {
+            ytPlayer =
+              new window.YT.Player(
+                'yt-player',
+                {
+                  height: '1',
+                  width: '1',
+                  videoId:
+                    currentVideoId,
 
-                playerVars: {
-                  autoplay: 0,
-                  controls: 0,
-                  disablekb: 1,
-                  fs: 0,
-                  modestbranding: 1,
-                  playsinline: 1,
-                  rel: 0,
-                },
-
-                events: {
-                  onReady: (event) => {
-                    ytReady = true;
-
-                    const duration =
-                      event.target.getDuration() || 0;
-
-                    seekBar.max =
-                      String(duration || 100);
-
-                    timeTotal.textContent =
-                      formatDuration(duration);
-
-                    resolve(event.target);
+                  playerVars: {
+                    autoplay: 0,
+                    controls: 0,
+                    disablekb: 1,
+                    fs: 0,
+                    modestbranding: 1,
+                    playsinline: 1,
+                    rel: 0,
                   },
 
-                  onStateChange: (event) => {
-                    const playing =
-                      event.data ===
-                      window.YT.PlayerState.PLAYING;
+                  events: {
+                    onReady: (
+                      event
+                    ) => {
+                      ytReady = true;
 
-                    setPlayingUi(playing);
+                      const duration =
+                        event.target.getDuration() ||
+                        0;
 
-                    if (playing) {
-                      setPlayerMessage('');
-                      startProgress();
-                    } else {
-                      stopProgress();
-                      updateProgress();
-                    }
+                      seekBar.max =
+                        String(
+                          duration ||
+                            100
+                        );
 
-                    if (
-                      event.data ===
-                      window.YT.PlayerState.ENDED
-                    ) {
-                      setPlayingUi(false);
+                      timeTotal.textContent =
+                        formatDuration(
+                          duration
+                        );
 
-                      seekBar.value = '0';
+                      resolve(
+                        event.target
+                      );
+                    },
 
-                      timeCurrent.textContent =
-                        '0:00';
-                    }
+                    onStateChange: (
+                      event
+                    ) => {
+                      const playing =
+                        event.data ===
+                        window.YT.PlayerState.PLAYING;
+
+                      setPlayingUi(
+                        playing
+                      );
+
+                      if (playing) {
+                        setPlayerMessage(
+                          ''
+                        );
+
+                        startProgress();
+                      } else {
+                        stopProgress();
+                        updateProgress();
+                      }
+
+                      if (
+                        event.data ===
+                        window.YT.PlayerState.ENDED
+                      ) {
+                        setPlayingUi(
+                          false
+                        );
+
+                        seekBar.value =
+                          '0';
+
+                        timeCurrent.textContent =
+                          '0:00';
+                      }
+                    },
+
+                    onError: () => {
+                      setPlayingUi(
+                        false
+                      );
+
+                      setPlayerMessage(
+                        'YouTube bloqueó la reproducción aquí. Prueba abrir el video en YouTube o descarga el audio.'
+                      );
+
+                      reject(
+                        new Error(
+                          'No se pudo reproducir este video.'
+                        )
+                      );
+                    },
                   },
-
-                  onError: () => {
-                    setPlayingUi(false);
-
-                    setPlayerMessage(
-                      'YouTube bloqueó la reproducción aquí. Puedes descargar el audio.'
-                    );
-
-                    reject(
-                      new Error(
-                        'No se pudo reproducir este video.'
-                      )
-                    );
-                  },
-                },
-              }
-            );
-        })
+                }
+              );
+          }
+        )
     );
   }
 
@@ -617,7 +928,8 @@
       if (
         ytPlayer &&
         ytReady &&
-        typeof ytPlayer.seekTo === 'function'
+        typeof ytPlayer.seekTo ===
+          'function'
       ) {
         ytPlayer.seekTo(
           Number(seekBar.value),
@@ -627,39 +939,117 @@
     }
   );
 
-  /*
-   * IMPORTANTE:
-   *
-   * Ya NO descargamos la portada.
-   * Ya NO llamamos /api/cover.
-   *
-   * Si el HTML todavía tiene la imagen de portada,
-   * simplemente la ocultamos.
-   */
-  function hideCover() {
-    if (previewThumb) {
-      previewThumb.removeAttribute('src');
-      previewThumb.style.display = 'none';
+  function detectCoverTone(img) {
+    const probe =
+      document.createElement(
+        'canvas'
+      );
+
+    probe.width = 32;
+    probe.height = 32;
+
+    const ctx =
+      probe.getContext(
+        '2d',
+        {
+          willReadFrequently:
+            true,
+        }
+      );
+
+    if (!ctx) return 'color';
+
+    ctx.drawImage(
+      img,
+      0,
+      0,
+      32,
+      32
+    );
+
+    const { data } =
+      ctx.getImageData(
+        0,
+        0,
+        32,
+        32
+      );
+
+    let sat = 0;
+    let val = 0;
+
+    const count =
+      data.length / 4;
+
+    for (
+      let i = 0;
+      i < data.length;
+      i += 4
+    ) {
+      const [, s, v] =
+        rgbToHsv(
+          data[i],
+          data[i + 1],
+          data[i + 2]
+        );
+
+      sat += s;
+      val += v;
     }
 
-    if (downloadModalCover) {
-      downloadModalCover.removeAttribute('src');
+    sat /= count;
+    val /= count;
+
+    if (sat < 0.16) {
+      if (val < 0.34) {
+        return 'black';
+      }
+
+      if (val > 0.72) {
+        return 'white';
+      }
     }
 
-    if (downloadOverlay) {
-      downloadOverlay.hidden = true;
-    }
+    return 'color';
   }
 
-  hideCover();
+  previewThumb.addEventListener(
+    'load',
+    () => {
+      const tone =
+        detectCoverTone(
+          previewThumb
+        );
 
-  /*
-   * BÚSQUEDA / VISTA PREVIA
-   *
-   * Solo pedimos /api/info.
-   * No descargamos portada.
-   * No hacemos análisis de colores de la imagen.
-   */
+      if (tone === 'black') {
+        applyPalette(
+          MONO_BLACK
+        );
+
+        return;
+      }
+
+      if (tone === 'white') {
+        applyPalette(
+          MONO_WHITE
+        );
+
+        return;
+      }
+
+      const extracted =
+        extractPaletteFromImage(
+          previewThumb
+        );
+
+      if (extracted) {
+        applyPalette(
+          extracted
+        );
+      }
+    }
+  );
+
   form.addEventListener(
     'submit',
     async (event) => {
@@ -676,25 +1066,19 @@
 
       preview.hidden = true;
 
-      if (downloadStatus) {
-        downloadStatus.hidden = true;
-      }
+      downloadStatus.hidden =
+        true;
 
       destroyPlayer();
 
       setPlayerMessage('');
 
-      currentUrl = '';
-      currentVideoId = '';
-
       try {
         const response =
           await fetch(
-            `/api/info?url=${encodeURIComponent(url)}`,
-            {
-              method: 'GET',
-              cache: 'no-store',
-            }
+            `/api/info?url=${encodeURIComponent(
+              url
+            )}`
           );
 
         const data =
@@ -712,22 +1096,19 @@
         currentVideoId =
           data.id || '';
 
-        /*
-         * Aplicamos directamente la paleta
-         * proporcionada por la API.
-         *
-         * No esperamos ninguna imagen.
-         */
-        if (data.palette) {
-          applyPalette(data.palette);
-        }
+        applyPalette(
+          data.palette
+        );
 
-        /*
-         * NO asignamos data.thumbnail.
-         *
-         * Esto evita descargar la portada.
-         */
-        hideCover();
+        previewThumb.src =
+          coverSrc(
+            data.thumbnail
+          );
+
+        previewThumb.alt =
+          data.title
+            ? `Portada de ${data.title}`
+            : 'Portada';
 
         previewTitle.textContent =
           data.title ||
@@ -781,14 +1162,6 @@
     }
   );
 
-  /*
-   * DESCARGA DIRECTA
-   *
-   * Ya no abrimos modal.
-   * Ya no mostramos portada.
-   * El archivo se descarga directamente
-   * cuando Render termina de prepararlo.
-   */
   downloadBtn.addEventListener(
     'click',
     async () => {
@@ -803,44 +1176,16 @@
         'loading'
       );
 
-      if (downloadBtnLabel) {
-        downloadBtnLabel.textContent =
-          'Preparando…';
-      }
+      downloadBtnLabel.textContent =
+        'Descargando…';
 
-      if (downloadStatus) {
-        downloadStatus.hidden = false;
+      downloadStatus.hidden =
+        true;
 
-        downloadStatus.textContent =
-          'Preparando la descarga…';
-      }
+      openDownloadModal();
 
       downloadController =
         new AbortController();
-
-      const startTime =
-        performance.now();
-
-      /*
-       * Mostramos tiempo transcurrido
-       * mientras Render genera el archivo.
-       */
-      let elapsedTimer = null;
-
-      elapsedTimer =
-        setInterval(() => {
-          if (!downloadStatus) return;
-
-          const elapsed =
-            Math.floor(
-              (performance.now() -
-                startTime) /
-                1000
-            );
-
-          downloadStatus.textContent =
-            `Preparando la descarga… ${elapsed}s`;
-        }, 1000);
 
       try {
         const response =
@@ -876,64 +1221,6 @@
           );
         }
 
-        if (!response.body) {
-          throw new Error(
-            'El navegador no permite descargar el archivo.'
-          );
-        }
-
-        /*
-         * Intentamos obtener el nombre enviado
-         * por FastAPI.
-         */
-        const disposition =
-          response.headers.get(
-            'Content-Disposition'
-          ) || '';
-
-        let filename =
-          `audio.${format}`;
-
-        /*
-         * Soporta:
-         *
-         * filename="cancion.mp3"
-         *
-         * y:
-         *
-         * filename*=UTF-8''canci%C3%B3n.mp3
-         */
-        const utfMatch =
-          disposition.match(
-            /filename\*=UTF-8''([^;]+)/i
-          );
-
-        const normalMatch =
-          disposition.match(
-            /filename="?([^"]+)"?/i
-          );
-
-        if (utfMatch) {
-          try {
-            filename =
-              decodeURIComponent(
-                utfMatch[1]
-              );
-          } catch (_error) {
-            filename =
-              utfMatch[1];
-          }
-        } else if (normalMatch) {
-          filename =
-            normalMatch[1];
-        }
-
-        /*
-         * Leemos el archivo.
-         *
-         * Si Render ya terminó de generarlo,
-         * aquí comenzará el progreso real.
-         */
         const total =
           Number(
             response.headers.get(
@@ -941,12 +1228,36 @@
             )
           ) || 0;
 
+        const disposition =
+          response.headers.get(
+            'Content-Disposition'
+          ) || '';
+
+        const match =
+          disposition.match(
+            /filename="?([^"]+)"?/
+          );
+
+        const filename =
+          match
+            ? match[1]
+            : `audio.${format}`;
+
+        if (!response.body) {
+          throw new Error(
+            'El navegador no permite mostrar el progreso.'
+          );
+        }
+
         const reader =
           response.body.getReader();
 
         const chunks = [];
 
         let received = 0;
+
+        const startTime =
+          performance.now();
 
         while (true) {
           const {
@@ -960,35 +1271,48 @@
 
           received += value.length;
 
-          if (
-            total > 0 &&
-            downloadStatus
-          ) {
-            const percent =
-              Math.min(
-                100,
-                (received / total) *
-                  100
-              );
+          const elapsed =
+            (performance.now() -
+              startTime) /
+            1000;
 
-            downloadStatus.textContent =
-              `Descargando… ${percent.toFixed(
-                0
-              )}%`;
-          }
+          const speed =
+            elapsed > 0
+              ? received / elapsed
+              : 0;
+
+          const percent =
+            total > 0
+              ? (received / total) *
+                100
+              : 0;
+
+          const remaining =
+            total > 0 &&
+            speed > 0
+              ? (total - received) /
+                speed
+              : null;
+
+          updateDownloadProgress(
+            percent,
+            received,
+            total,
+            speed,
+            remaining
+          );
         }
 
+        updateDownloadProgress(
+          100,
+          received,
+          total,
+          0,
+          0
+        );
+
         const blob =
-          new Blob(
-            chunks,
-            {
-              type:
-                response.headers.get(
-                  'Content-Type'
-                ) ||
-                'application/octet-stream',
-            }
-          );
+          new Blob(chunks);
 
         const objectUrl =
           URL.createObjectURL(
@@ -1006,9 +1330,6 @@
         link.download =
           filename;
 
-        link.style.display =
-          'none';
-
         document.body.appendChild(
           link
         );
@@ -1017,47 +1338,48 @@
 
         link.remove();
 
-        /*
-         * Liberamos memoria después
-         * de iniciar la descarga.
-         */
-        setTimeout(() => {
-          URL.revokeObjectURL(
-            objectUrl
-          );
-        }, 2000);
+        URL.revokeObjectURL(
+          objectUrl
+        );
 
-        if (downloadStatus) {
-          downloadStatus.textContent =
-            '✓ Descarga completa.';
-        }
+        await new Promise(
+          (resolve) =>
+            setTimeout(
+              resolve,
+              500
+            )
+        );
+
+        closeDownloadModal();
+
+        downloadStatus.textContent =
+          format === 'wav'
+            ? 'Descarga completa.'
+            : 'Descarga completa, con portada incluida.';
+
+        downloadStatus.hidden =
+          false;
 
       } catch (error) {
         if (
           error.name ===
           'AbortError'
         ) {
-          if (downloadStatus) {
-            downloadStatus.textContent =
-              'Descarga cancelada.';
-          }
+          downloadStatus.textContent =
+            'Descarga cancelada.';
         } else {
-          if (downloadStatus) {
-            downloadStatus.textContent =
-              error.message ||
-              'No se pudo completar la descarga.';
-          }
+          downloadStatus.textContent =
+            error.message ||
+            'No se pudo completar la descarga.';
         }
+
+        downloadStatus.hidden =
+          false;
+
+        closeDownloadModal();
 
       } finally {
-        if (elapsedTimer) {
-          clearInterval(
-            elapsedTimer
-          );
-        }
-
-        downloadController =
-          null;
+        downloadController = null;
 
         downloadBtn.disabled =
           false;
@@ -1066,43 +1388,19 @@
           'loading'
         );
 
-        if (downloadBtnLabel) {
-          downloadBtnLabel.textContent =
-            'Descargar';
-        }
+        downloadBtnLabel.textContent =
+          'Descargar';
       }
     }
   );
 
-  /*
-   * Botón cancelar.
-   *
-   * Aunque ya no usamos ventana emergente,
-   * mantenemos compatibilidad con el HTML.
-   */
-  if (cancelDownloadBtn) {
-    cancelDownloadBtn.addEventListener(
-      'click',
-      () => {
-        if (downloadController) {
-          downloadController.abort();
-        }
+  cancelDownloadBtn.addEventListener(
+    'click',
+    () => {
+      if (downloadController) {
+        downloadController.abort();
       }
-    );
-  }
-
-  /*
-   * Si por alguna razón el HTML intenta
-   * mostrar la ventana antigua, la ocultamos.
-   */
-  if (downloadOverlay) {
-    downloadOverlay.hidden = true;
-  }
-
-  /*
-   * Inicialización.
-   */
-  updateFormatUI();
-  hideCover();
+    }
+  );
 
 })();
