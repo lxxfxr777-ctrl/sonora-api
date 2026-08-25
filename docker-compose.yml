@@ -1,0 +1,13 @@
+version: "3.8"
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Si quieres montar un archivo local cookies.txt
+      - ./cookies.txt:/app/cookies.txt:ro
+    environment:
+      - PORT=8000
+      # Alternativa: pasar base64 en CI/secret manager
+      # - YTDLP_COOKIES_B64=${YTDLP_COOKIES_B64}
