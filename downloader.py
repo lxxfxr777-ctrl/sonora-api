@@ -137,11 +137,13 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "format": "bestaudio/best",
 
-        "retries": 3,
+        "retries": 5,
 
-        "fragment_retries": 3,
+        "fragment_retries": 5,
 
         "force_ipv4": True,
+
+        "socket_timeout": 30,
 
         "js_runtimes": {
             "deno": {},
@@ -157,14 +159,39 @@ def _base_ydl_options() -> dict[str, Any]:
                 "(Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
-                "Chrome/138.0.0.0 "
+                "Chrome/120.0.0.0 "
                 "Safari/537.36"
             ),
 
             "Accept-Language": (
                 "en-US,en;q=0.9"
             ),
+
+            "Accept": (
+                "text/html,application/xhtml+xml,"
+                "application/xml;q=0.9,*/*;q=0.8"
+            ),
+
+            "Accept-Encoding": (
+                "gzip, deflate"
+            ),
+
+            "DNT": "1",
+
+            "Connection": "keep-alive",
+
+            "Upgrade-Insecure-Requests": "1",
         },
+
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["web"],
+                "player_skip": ["js"],
+                "skip": ["hls", "dash"],
+            }
+        },
+
+        "suppress_http_warnings": True,
     }
 
     cookies_file = _get_cookie_file()
@@ -402,7 +429,8 @@ def download_audio(
 
             raise DownloadFailedError(
                 "YouTube rechazó la descarga "
-                "con HTTP 403."
+                "con HTTP 403. "
+                "Intenta más tarde o verifica tu conexión."
             ) from exc
 
         raise DownloadFailedError(
