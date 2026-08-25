@@ -96,10 +96,10 @@ def get_video_info(url: str) -> dict[str, Any]:
         "skip_download": True,
         "format": "bestaudio/best/251/140",
         "extractor_args": {
-            "youtube": {
-                "player_client": ["web", "android", "ios"]
-            }
-        },
+    "youtube": {
+        "player_client": ["web"]
+    }
+},
     }
 
     cookies_file = _get_cookies_file()
@@ -153,11 +153,11 @@ def _build_ydl_options(
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web", "android", "ios"]
-            }
-        },
+    "extractor_args": {
+    "youtube": {
+        "player_client": ["web"]
+    }
+},
         "progress_hooks": (
             [progress_callback]
             if progress_callback
