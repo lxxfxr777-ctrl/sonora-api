@@ -70,7 +70,7 @@ def video_info(url: str = Query(..., description="Enlace de YouTube")) -> dict:
 
 @app.get("/api/cover")
 def cover_proxy(src: str = Query(..., description="URL de la portada")) -> Response:
-    from app.palette import fetch_cover_bytes, is_allowed_cover_host
+    from palette import fetch_cover_bytes, is_allowed_cover_host
 
     parsed = urlparse(src)
     if parsed.scheme not in {"http", "https"} or not is_allowed_cover_host(parsed.hostname):
