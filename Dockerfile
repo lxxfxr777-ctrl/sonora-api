@@ -8,12 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
-
 RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y \
     && mv /root/.deno/bin/deno /usr/local/bin/deno \
     && deno --version
-
-
 WORKDIR /app
 
 COPY requirements.txt .
