@@ -26,6 +26,18 @@
   const timeTotal = document.getElementById('time-total');
   const playerNow = document.getElementById('player-now');
   const playerStatus = document.getElementById('player-status');
+    // Ventana de progreso de descarga
+  const downloadOverlay = document.getElementById('download-overlay');
+  const downloadModalCover = document.getElementById('download-modal-cover');
+  const downloadModalTitle = document.getElementById('download-modal-title');
+  const downloadPercent = document.getElementById('download-percent');
+  const downloadSize = document.getElementById('download-size');
+  const downloadProgressBar = document.getElementById('download-progress-bar');
+  const downloadSpeed = document.getElementById('download-speed');
+  const downloadEta = document.getElementById('download-eta');
+  const cancelDownloadBtn = document.getElementById('cancel-download-btn');
+
+  let downloadController = null;
 
   let currentUrl = '';
   let currentVideoId = '';
@@ -227,7 +239,74 @@
     if (!thumbnail) return '';
     return `/api/cover?src=${encodeURIComponent(thumbnail)}`;
   }
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '—';
 
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unit = 0;
+
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+
+    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  }
+
+  function formatEta(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '—';
+
+    const total = Math.round(seconds);
+    const minutes = Math.floor(total / 60);
+    const secs = total % 60;
+
+    if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    }
+
+    return `${secs}s`;
+  }
+
+  function openDownloadModal() {
+    downloadOverlay.hidden = false;
+    document.body.classList.add('download-open');
+
+    downloadModalCover.src = previewThumb.src;
+    downloadModalTitle.textContent =
+      previewTitle.textContent || 'Descargando canción';
+
+    downloadPercent.textContent = '0%';
+    downloadSize.textContent = 'Preparando...';
+    downloadProgressBar.style.width = '0%';
+    downloadSpeed.textContent = '⚡ —';
+    downloadEta.textContent = '⏱ —';
+  }
+
+  function closeDownloadModal() {
+    downloadOverlay.hidden = true;
+    document.body.classList.remove('download-open');
+  }
+
+  function updateDownloadProgress(percent, downloaded, total, speed, eta) {
+    const safePercent = Math.min(100, Math.max(0, Number(percent) || 0));
+
+    downloadPercent.textContent = `${safePercent.toFixed(0)}%`;
+    downloadProgressBar.style.width = `${safePercent}%`;
+
+    if (total > 0) {
+      downloadSize.textContent =
+        `${formatBytes(downloaded)} / ${formatBytes(total)}`;
+    } else {
+      downloadSize.textContent = formatBytes(downloaded);
+    }
+
+    downloadSpeed.textContent =
+      `⚡ ${speed ? formatBytes(speed) + '/s' : '—'}`;
+
+    downloadEta.textContent =
+      `⏱ ${eta !== null && eta !== undefined ? formatEta(eta) : '—'}`;
+  }
   function setSearchLoading(loading) {
     searchBtn.disabled = loading;
     searchBtn.textContent = loading ? 'Cargando…' : 'Vista previa';
