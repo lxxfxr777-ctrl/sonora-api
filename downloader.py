@@ -18,11 +18,13 @@ SUPPORTED_FORMATS = {
     "wav",
 }
 
+
 THUMBNAIL_EMBED_FORMATS = {
     "mp3",
     "m4a",
     "opus",
 }
+
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -36,6 +38,7 @@ class DownloadFailedError(RuntimeError):
 
 
 def validate_youtube_url(url: str) -> str:
+
     url = url.strip()
 
     if not url:
@@ -65,6 +68,7 @@ def validate_youtube_url(url: str) -> str:
 
 
 def _ensure_ffmpeg_available() -> None:
+
     if shutil.which("ffmpeg") is not None:
         return
 
@@ -75,12 +79,16 @@ def _ensure_ffmpeg_available() -> None:
     )
 
     for directory in possible_paths:
+
         ffmpeg_path = Path(directory) / "ffmpeg"
 
         if ffmpeg_path.exists():
+
             os.environ["PATH"] = (
-                f"{directory}:{os.environ.get('PATH', '')}"
+                f"{directory}:"
+                f"{os.environ.get('PATH', '')}"
             )
+
             return
 
     raise DownloadFailedError(
@@ -89,29 +97,29 @@ def _ensure_ffmpeg_available() -> None:
 
 
 def _get_cookie_file() -> str | None:
-    """
-    Busca el archivo de cookies usando YTDLP_COOKIES_FILE.
 
-    En Render recomendamos:
-        YTDLP_COOKIES_FILE=/app/cookies.txt
-    """
-
-    env_path = os.environ.get("YTDLP_COOKIES_FILE")
+    env_path = os.environ.get(
+        "YTDLP_COOKIES_FILE"
+    )
 
     if env_path:
+
         path = Path(env_path)
 
         if path.is_file():
             return str(path)
 
-    # También intenta automáticamente /app/cookies.txt
-    default_path = Path("/app/cookies.txt")
+    default_path = Path(
+        "/app/cookies.txt"
+    )
 
     if default_path.is_file():
         return str(default_path)
 
-    # Finalmente busca junto a este archivo
-    local_path = Path(__file__).resolve().parent / "cookies.txt"
+    local_path = (
+        Path(__file__).resolve().parent
+        / "cookies.txt"
+    )
 
     if local_path.is_file():
         return str(local_path)
@@ -122,12 +130,15 @@ def _get_cookie_file() -> str | None:
 def _base_ydl_options() -> dict[str, Any]:
 
     options: dict[str, Any] = {
-        "quiet": False,
-        "no_warnings": False,
+
+        "quiet": True,
+
+        "no_warnings": True,
 
         "format": "bestaudio/best",
 
         "retries": 3,
+
         "fragment_retries": 3,
 
         "force_ipv4": True,
@@ -142,12 +153,17 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "http_headers": {
             "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
-                "Chrome/138.0.0.0 Safari/537.36"
+                "Chrome/138.0.0.0 "
+                "Safari/537.36"
             ),
-            "Accept-Language": "en-US,en;q=0.9",
+
+            "Accept-Language": (
+                "en-US,en;q=0.9"
+            ),
         },
     }
 
@@ -159,7 +175,9 @@ def _base_ydl_options() -> dict[str, Any]:
     return options
 
 
-def get_video_info(url: str) -> dict[str, Any]:
+def get_video_info(
+    url: str,
+) -> dict[str, Any]:
 
     validate_youtube_url(url)
 
@@ -169,7 +187,9 @@ def get_video_info(url: str) -> dict[str, Any]:
 
     try:
 
-        with yt_dlp.YoutubeDL(options) as ydl:
+        with yt_dlp.YoutubeDL(
+            options
+        ) as ydl:
 
             info = ydl.extract_info(
                 url,
@@ -178,10 +198,8 @@ def get_video_info(url: str) -> dict[str, Any]:
 
     except DownloadError as exc:
 
-        message = str(exc)
-
         raise DownloadFailedError(
-            message
+            str(exc)
         ) from exc
 
     if info is None:
@@ -198,10 +216,21 @@ def get_video_info(url: str) -> dict[str, Any]:
     return attach_palette(
         {
             "id": info.get("id"),
+
             "title": info.get("title"),
-            "duration": info.get("duration"),
-            "uploader": info.get("uploader"),
-            "thumbnail": best_thumbnail_url(info),
+
+            "duration": info.get(
+                "duration"
+            ),
+
+            "uploader": info.get(
+                "uploader"
+            ),
+
+            "thumbnail": best_thumbnail_url(
+                info
+            ),
+
             "webpage_url": info.get(
                 "webpage_url",
                 url,
@@ -227,10 +256,14 @@ def _build_ydl_options(
             progress_callback
         ]
 
-    postprocessors: list[dict[str, Any]] = [
+    postprocessors: list[
+        dict[str, Any]
+    ] = [
         {
             "key": "FFmpegExtractAudio",
+
             "preferredcodec": audio_format,
+
             "preferredquality": "192",
         }
     ]
@@ -242,6 +275,7 @@ def _build_ydl_options(
         postprocessors.append(
             {
                 "key": "FFmpegMetadata",
+
                 "add_metadata": True,
             }
         )
@@ -249,11 +283,14 @@ def _build_ydl_options(
         postprocessors.append(
             {
                 "key": "EmbedThumbnail",
+
                 "already_have_thumbnail": False,
             }
         )
 
-    options["postprocessors"] = postprocessors
+    options["postprocessors"] = (
+        postprocessors
+    )
 
     return options
 
@@ -268,12 +305,17 @@ def _run_yt_dlp(
 
     options = _build_ydl_options(
         output_template=output_template,
+
         audio_format=audio_format,
+
         embed_thumbnail=embed_thumbnail,
+
         progress_callback=progress_callback,
     )
 
-    with yt_dlp.YoutubeDL(options) as ydl:
+    with yt_dlp.YoutubeDL(
+        options
+    ) as ydl:
 
         return ydl.extract_info(
             url,
@@ -285,7 +327,7 @@ def download_audio(
     url: str,
     audio_format: str = "mp3",
     progress_callback: ProgressCallback | None = None,
-) -> tuple[Path, str]:
+) -> tuple[Path, str, str]:
 
     validate_youtube_url(url)
 
@@ -294,7 +336,8 @@ def download_audio(
     if audio_format not in SUPPORTED_FORMATS:
 
         raise ValueError(
-            f"Formato no soportado: {audio_format}. "
+            f"Formato no soportado: "
+            f"{audio_format}. "
             f"Usa uno de: "
             f"{', '.join(sorted(SUPPORTED_FORMATS))}"
         )
@@ -302,7 +345,8 @@ def download_audio(
     _ensure_ffmpeg_available()
 
     embed_thumbnail = (
-        audio_format in THUMBNAIL_EMBED_FORMATS
+        audio_format
+        in THUMBNAIL_EMBED_FORMATS
     )
 
     temp_dir = Path(
@@ -312,16 +356,21 @@ def download_audio(
     )
 
     output_template = str(
-        temp_dir / "%(title)s.%(ext)s"
+        temp_dir
+        / "%(title)s.%(ext)s"
     )
 
     try:
 
         info = _run_yt_dlp(
             output_template=output_template,
+
             url=url,
+
             audio_format=audio_format,
+
             embed_thumbnail=embed_thumbnail,
+
             progress_callback=progress_callback,
         )
 
@@ -335,22 +384,25 @@ def download_audio(
         message = str(exc)
 
         if (
-            "Sign in to confirm" in message
-            or "LOGIN_REQUIRED" in message
+            "Sign in to confirm"
+            in message
+            or "LOGIN_REQUIRED"
+            in message
         ):
+
             raise DownloadFailedError(
-                "YouTube está bloqueando esta solicitud. "
-                "Las cookies de YouTube no son válidas "
-                "o la sesión requiere una nueva autenticación."
+                "YouTube está bloqueando "
+                "esta solicitud. "
+                "Las cookies de YouTube "
+                "no son válidas o la sesión "
+                "requiere autenticación."
             ) from exc
 
         if "HTTP Error 403" in message:
 
             raise DownloadFailedError(
-                "YouTube rechazó la descarga con HTTP 403. "
-                "La solicitud necesita una autenticación "
-                "o un mecanismo de acceso que YouTube está "
-                "exigiendo actualmente."
+                "YouTube rechazó la descarga "
+                "con HTTP 403."
             ) from exc
 
         raise DownloadFailedError(
@@ -384,6 +436,12 @@ def download_audio(
         or "audio"
     )
 
+    uploader = (
+        info.get("uploader")
+        or info.get("channel")
+        or ""
+    )
+
     downloaded_files = list(
         temp_dir.glob(
             f"*.{audio_format}"
@@ -399,7 +457,12 @@ def download_audio(
 
         raise DownloadFailedError(
             "La descarga terminó pero "
-            "no se encontró el archivo de audio."
+            "no se encontró el archivo "
+            "de audio."
         )
 
-    return downloaded_files[0], title
+    return (
+        downloaded_files[0],
+        title,
+        uploader,
+    )
