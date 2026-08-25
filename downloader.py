@@ -43,25 +43,20 @@ def validate_youtube_url(url: str) -> str:
             "La URL no puede estar vacía."
         )
 
-    allowed = (
-        "youtube.com/",
-        "www.youtube.com/",
-        "youtu.be/",
-        "music.youtube.com/",
-    )
-
     clean_url = url.lower()
 
-    if not (
-        clean_url.startswith("https://youtube.com/")
-        or clean_url.startswith("http://youtube.com/")
-        or clean_url.startswith("https://www.youtube.com/")
-        or clean_url.startswith("http://www.youtube.com/")
-        or clean_url.startswith("https://youtu.be/")
-        or clean_url.startswith("http://youtu.be/")
-        or clean_url.startswith("https://music.youtube.com/")
-        or clean_url.startswith("http://music.youtube.com/")
-    ):
+    allowed = (
+        "https://youtube.com/",
+        "http://youtube.com/",
+        "https://www.youtube.com/",
+        "http://www.youtube.com/",
+        "https://youtu.be/",
+        "http://youtu.be/",
+        "https://music.youtube.com/",
+        "http://music.youtube.com/",
+    )
+
+    if not clean_url.startswith(allowed):
         raise InvalidYouTubeURLError(
             "La URL no parece ser un enlace válido de YouTube."
         )
@@ -74,9 +69,9 @@ def _ensure_ffmpeg_available() -> None:
         return
 
     possible_paths = (
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
         "/usr/bin",
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
     )
 
     for directory in possible_paths:
@@ -93,16 +88,40 @@ def _ensure_ffmpeg_available() -> None:
     )
 
 
+def _get_cookie_file() -> str | None:
+    """
+    Busca el archivo de cookies usando YTDLP_COOKIES_FILE.
+
+    En Render recomendamos:
+        YTDLP_COOKIES_FILE=/app/cookies.txt
+    """
+
+    env_path = os.environ.get("YTDLP_COOKIES_FILE")
+
+    if env_path:
+        path = Path(env_path)
+
+        if path.is_file():
+            return str(path)
+
+    # También intenta automáticamente /app/cookies.txt
+    default_path = Path("/app/cookies.txt")
+
+    if default_path.is_file():
+        return str(default_path)
+
+    # Finalmente busca junto a este archivo
+    local_path = Path(__file__).resolve().parent / "cookies.txt"
+
+    if local_path.is_file():
+        return str(local_path)
+
+    return None
+
+
 def _base_ydl_options() -> dict[str, Any]:
-    """
-    Configuración común de yt-dlp.
 
-    No forzamos clientes específicos de YouTube.
-    Esto permite que yt-dlp seleccione la estrategia
-    compatible disponible.
-    """
-
-    return {
+    options: dict[str, Any] = {
         "quiet": False,
         "no_warnings": False,
 
@@ -126,11 +145,18 @@ def _base_ydl_options() -> dict[str, Any]:
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
-                "Chrome/148.0.0.0 Safari/537.36"
+                "Chrome/138.0.0.0 Safari/537.36"
             ),
             "Accept-Language": "en-US,en;q=0.9",
         },
     }
+
+    cookies_file = _get_cookie_file()
+
+    if cookies_file:
+        options["cookiefile"] = cookies_file
+
+    return options
 
 
 def get_video_info(url: str) -> dict[str, Any]:
@@ -139,11 +165,7 @@ def get_video_info(url: str) -> dict[str, Any]:
 
     options = _base_ydl_options()
 
-    options.update(
-        {
-            "skip_download": True,
-        }
-    )
+    options["skip_download"] = True
 
     try:
 
@@ -156,8 +178,10 @@ def get_video_info(url: str) -> dict[str, Any]:
 
     except DownloadError as exc:
 
+        message = str(exc)
+
         raise DownloadFailedError(
-            str(exc)
+            message
         ) from exc
 
     if info is None:
@@ -310,19 +334,23 @@ def download_audio(
 
         message = str(exc)
 
-        if "403" in message:
+        if (
+            "Sign in to confirm" in message
+            or "LOGIN_REQUIRED" in message
+        ):
+            raise DownloadFailedError(
+                "YouTube está bloqueando esta solicitud. "
+                "Las cookies de YouTube no son válidas "
+                "o la sesión requiere una nueva autenticación."
+            ) from exc
+
+        if "HTTP Error 403" in message:
 
             raise DownloadFailedError(
                 "YouTube rechazó la descarga con HTTP 403. "
-                "El video requiere una autenticación o "
-                "PO Token que yt-dlp no pudo obtener."
-            ) from exc
-
-        if "LOGIN_REQUIRED" in message:
-
-            raise DownloadFailedError(
-                "YouTube requiere iniciar sesión para "
-                "este video."
+                "La solicitud necesita una autenticación "
+                "o un mecanismo de acceso que YouTube está "
+                "exigiendo actualmente."
             ) from exc
 
         raise DownloadFailedError(
