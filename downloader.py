@@ -106,14 +106,6 @@ def validate_youtube_url(url: str) -> str:
 
 
 def _youtube_extractor_args() -> dict[str, Any]:
-    """
-    No forzamos únicamente el cliente web.
-
-    YouTube está aplicando actualmente diferentes requisitos
-    de reproducción/descarga según el cliente. Dejamos que
-    yt-dlp seleccione los clientes compatibles.
-    """
-
     return {
         "youtube": {
             "player_client": [
@@ -127,32 +119,20 @@ def _youtube_extractor_args() -> dict[str, Any]:
 
 
 def _base_options() -> dict[str, Any]:
-   options: dict[str, Any] = {
-    "quiet": False,
-    "no_warnings": False,
-    "verbose": True,
+    options: dict[str, Any] = {
+        "quiet": False,
+        "no_warnings": False,
+        "verbose": True,
 
-    "format": "bestaudio/best",
+        "format": "bestaudio/best",
 
-    "retries": 3,
-    "fragment_retries": 3,
-
-    "ignoreerrors": False,
-
-    "force_ipv4": True,
-}
         "extractor_args": _youtube_extractor_args(),
 
-        # Reintentos para errores temporales.
         "retries": 3,
         "fragment_retries": 3,
 
-        # Permite que yt-dlp cambie de formato/cliente
-        # si alguno no está disponible.
         "ignoreerrors": False,
 
-        # Usar IPv4 suele ser más estable en algunos
-        # entornos cloud.
         "force_ipv4": True,
     }
 
@@ -216,7 +196,6 @@ def _build_ydl_options(
 ) -> dict[str, Any]:
 
     options = _base_options()
-    options["verbose"] = True
 
     options.update(
         {
@@ -328,8 +307,6 @@ def download_audio(
 
     except DownloadError as exc:
 
-        # Si falla la incorporación de portada,
-        # intentamos nuevamente sin portada.
         if embed_thumbnail:
 
             shutil.rmtree(
