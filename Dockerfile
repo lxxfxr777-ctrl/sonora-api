@@ -6,11 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # FFmpeg is required by yt-dlp for audio extraction/conversion
 # and for embedding metadata/cover art.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg curl \
     && rm -rf /var/lib/apt/lists/*
+    
 RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y \
     && mv /root/.deno/bin/deno /usr/local/bin/deno \
     && deno --version
+    
 WORKDIR /app
 
 COPY requirements.txt .
