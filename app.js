@@ -15,8 +15,12 @@
   const formatNote = document.getElementById('format-note');
 
   const downloadBtn = document.getElementById('download-btn');
-  const downloadBtnLabel = downloadBtn.querySelector('.download-btn-label');
+  const downloadBtnLabel = downloadBtn
+    ? downloadBtn.querySelector('.download-btn-label')
+    : null;
+
   const downloadStatus = document.getElementById('download-status');
+
   const coverStage = document.querySelector('.cover-stage');
   const playBtn = document.getElementById('play-btn');
   const playIcon = document.getElementById('play-icon');
@@ -26,7 +30,12 @@
   const timeTotal = document.getElementById('time-total');
   const playerNow = document.getElementById('player-now');
   const playerStatus = document.getElementById('player-status');
-    // Ventana de progreso de descarga
+
+  /*
+   * Ya no utilizamos la ventana emergente de descarga.
+   * Se mantienen estas referencias solamente por compatibilidad
+   * con el HTML existente.
+   */
   const downloadOverlay = document.getElementById('download-overlay');
   const downloadModalCover = document.getElementById('download-modal-cover');
   const downloadModalTitle = document.getElementById('download-modal-title');
@@ -41,6 +50,7 @@
 
   let currentUrl = '';
   let currentVideoId = '';
+
   let ytPlayer = null;
   let ytReady = false;
   let ytApiPromise = null;
@@ -90,14 +100,23 @@
 
   function formatDuration(seconds) {
     if (seconds === null || seconds === undefined) return '—';
+
     const total = Math.round(Number(seconds));
+
     if (!Number.isFinite(total) || total < 0) return '—';
+
     const hours = Math.floor(total / 3600);
     const minutes = Math.floor((total % 3600) / 60);
     const secs = total % 60;
+
     if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      return `${hours}:${minutes
+        .toString()
+        .padStart(2, '0')}:${secs
+        .toString()
+        .padStart(2, '0')}`;
     }
+
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   }
 
@@ -106,32 +125,49 @@
   }
 
   function rgbToHex(r, g, b) {
-    return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+    return `#${[r, g, b]
+      .map((n) => n.toString(16).padStart(2, '0'))
+      .join('')}`.toUpperCase();
   }
 
   function rgbToHsv(r, g, b) {
-    r /= 255; g /= 255; b /= 255;
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const d = max - min;
+
     let h = 0;
+
     if (d !== 0) {
-      if (max === r) h = ((g - b) / d) % 6;
-      else if (max === g) h = (b - r) / d + 2;
-      else h = (r - g) / d + 4;
+      if (max === r) {
+        h = ((g - b) / d) % 6;
+      } else if (max === g) {
+        h = (b - r) / d + 2;
+      } else {
+        h = (r - g) / d + 4;
+      }
+
       h /= 6;
+
       if (h < 0) h += 1;
     }
+
     const s = max === 0 ? 0 : d / max;
+
     return [h, s, max];
   }
 
   function hsvToRgb(h, s, v) {
     const i = Math.floor(h * 6);
     const f = h * 6 - i;
+
     const p = v * (1 - s);
     const q = v * (1 - f * s);
     const t = v * (1 - (1 - f) * s);
+
     const table = [
       [v, t, p],
       [q, v, p],
@@ -140,20 +176,29 @@
       [t, p, v],
       [v, p, q],
     ];
+
     const [r, g, b] = table[i % 6];
-    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+
+    return [
+      Math.round(r * 255),
+      Math.round(g * 255),
+      Math.round(b * 255),
+    ];
   }
 
   function vividize(r, g, b) {
     let [h, s, v] = rgbToHsv(r, g, b);
+
     s = clamp(Math.max(s, 0.78) * 1.4, 0.82, 1);
     v = clamp(Math.max(v, 0.82), 0.78, 0.98);
+
     return hsvToRgb(h, s, v);
   }
 
   function paletteFromRgb(r, g, b) {
     const [ar, ag, ab] = vividize(r, g, b);
     const [h] = rgbToHsv(ar, ag, ab);
+
     const [lr, lg, lb] = hsvToRgb(h, 0.82, 0.98);
     const [dr, dg, db] = hsvToRgb(h, 0.95, 0.52);
     const [hr, hg, hb] = hsvToRgb(h, 0.9, 1);
@@ -173,48 +218,14 @@
     };
   }
 
-  function extractPaletteFromImage(img) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return null;
-    ctx.drawImage(img, 0, 0, 64, 64);
-    const { data } = ctx.getImageData(0, 0, 64, 64);
-    const buckets = new Map();
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const [, s, v] = rgbToHsv(r, g, b);
-      if (v < 0.14 || v > 0.97 || s < 0.12) continue;
-      const key = `${r >> 4}_${g >> 4}_${b >> 4}`;
-      const weight = (1 + s * 2.6) * (0.55 + Math.min(v, 0.9));
-      const current = buckets.get(key) || { r, g, b, score: 0 };
-      current.score += weight;
-      buckets.set(key, current);
-    }
-
-    const ranked = [...buckets.values()].sort((a, b) => b.score - a.score).slice(0, 12);
-    if (!ranked.length) return null;
-
-    let best = ranked[0];
-    let bestVivid = -1;
-    for (const color of ranked) {
-      const [, s, v] = rgbToHsv(color.r, color.g, color.b);
-      const vivid = color.score * (0.35 + s) * (0.4 + v);
-      if (vivid > bestVivid) {
-        bestVivid = vivid;
-        best = color;
-      }
-    }
-    return paletteFromRgb(best.r, best.g, best.b);
-  }
-
   function applyPalette(palette) {
-    const colors = { ...DEFAULT_PALETTE, ...(palette || {}) };
+    const colors = {
+      ...DEFAULT_PALETTE,
+      ...(palette || {}),
+    };
+
     const root = document.documentElement;
+
     root.style.setProperty('--red', colors.accent);
     root.style.setProperty('--red-hover', colors.accent_hover);
     root.style.setProperty('--red-deep', colors.accent_deep);
@@ -225,91 +236,38 @@
     root.style.setProperty('--aurora-1', colors.aurora_1);
     root.style.setProperty('--aurora-2', colors.aurora_2);
     root.style.setProperty('--aurora-3', colors.aurora_3);
+
     document.body.classList.add('themed');
-    document.body.classList.toggle('cover-black', colors.tone === 'black');
-    document.body.classList.toggle('cover-white', colors.tone === 'white');
+
+    document.body.classList.toggle(
+      'cover-black',
+      colors.tone === 'black'
+    );
+
+    document.body.classList.toggle(
+      'cover-white',
+      colors.tone === 'white'
+    );
   }
 
   function resetPalette() {
-    applyPalette({ ...DEFAULT_PALETTE, tone: 'color' });
-    document.body.classList.remove('themed', 'cover-black', 'cover-white');
+    applyPalette({
+      ...DEFAULT_PALETTE,
+      tone: 'color',
+    });
+
+    document.body.classList.remove(
+      'themed',
+      'cover-black',
+      'cover-white'
+    );
   }
 
-  function coverSrc(thumbnail) {
-    if (!thumbnail) return '';
-    return `/api/cover?src=${encodeURIComponent(thumbnail)}`;
-  }
-  function formatBytes(bytes) {
-    if (!Number.isFinite(bytes) || bytes <= 0) return '—';
-
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let value = bytes;
-    let unit = 0;
-
-    while (value >= 1024 && unit < units.length - 1) {
-      value /= 1024;
-      unit++;
-    }
-
-    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-  }
-
-  function formatEta(seconds) {
-    if (!Number.isFinite(seconds) || seconds < 0) return '—';
-
-    const total = Math.round(seconds);
-    const minutes = Math.floor(total / 60);
-    const secs = total % 60;
-
-    if (minutes > 0) {
-      return `${minutes}m ${secs}s`;
-    }
-
-    return `${secs}s`;
-  }
-
-  function openDownloadModal() {
-    downloadOverlay.hidden = false;
-    document.body.classList.add('download-open');
-
-    downloadModalCover.src = previewThumb.src;
-    downloadModalTitle.textContent =
-      previewTitle.textContent || 'Descargando canción';
-
-    downloadPercent.textContent = '0%';
-    downloadSize.textContent = 'Preparando...';
-    downloadProgressBar.style.width = '0%';
-    downloadSpeed.textContent = '⚡ —';
-    downloadEta.textContent = '⏱ —';
-  }
-
-  function closeDownloadModal() {
-    downloadOverlay.hidden = true;
-    document.body.classList.remove('download-open');
-  }
-
-  function updateDownloadProgress(percent, downloaded, total, speed, eta) {
-    const safePercent = Math.min(100, Math.max(0, Number(percent) || 0));
-
-    downloadPercent.textContent = `${safePercent.toFixed(0)}%`;
-    downloadProgressBar.style.width = `${safePercent}%`;
-
-    if (total > 0) {
-      downloadSize.textContent =
-        `${formatBytes(downloaded)} / ${formatBytes(total)}`;
-    } else {
-      downloadSize.textContent = formatBytes(downloaded);
-    }
-
-    downloadSpeed.textContent =
-      `⚡ ${speed ? formatBytes(speed) + '/s' : '—'}`;
-
-    downloadEta.textContent =
-      `⏱ ${eta !== null && eta !== undefined ? formatEta(eta) : '—'}`;
-  }
   function setSearchLoading(loading) {
     searchBtn.disabled = loading;
-    searchBtn.textContent = loading ? 'Cargando…' : 'Vista previa';
+    searchBtn.textContent = loading
+      ? 'Buscando…'
+      : 'Vista previa';
   }
 
   function showError(message) {
@@ -323,30 +281,61 @@
   }
 
   function selectedFormat() {
-    const checked = document.querySelector('input[name="format"]:checked');
+    const checked = document.querySelector(
+      'input[name="format"]:checked'
+    );
+
     return checked ? checked.value : 'mp3';
   }
 
   function updateFormatUI() {
     const format = selectedFormat();
-    previewFormatLabel.textContent = format.toUpperCase();
+
+    previewFormatLabel.textContent =
+      format.toUpperCase();
+
     formatNote.hidden = format !== 'wav';
   }
 
-  formatInputs.forEach((input) => input.addEventListener('change', updateFormatUI));
+  formatInputs.forEach((input) => {
+    input.addEventListener(
+      'change',
+      updateFormatUI
+    );
+  });
 
+  /*
+   * YouTube API se carga únicamente cuando el usuario
+   * quiere reproducir. Esto hace que la búsqueda sea
+   * mucho más rápida.
+   */
   function loadYouTubeApi() {
-    if (window.YT && window.YT.Player) return Promise.resolve();
-    if (ytApiPromise) return ytApiPromise;
+    if (window.YT && window.YT.Player) {
+      return Promise.resolve();
+    }
+
+    if (ytApiPromise) {
+      return ytApiPromise;
+    }
 
     ytApiPromise = new Promise((resolve) => {
-      const previous = window.onYouTubeIframeAPIReady;
+      const previous =
+        window.onYouTubeIframeAPIReady;
+
       window.onYouTubeIframeAPIReady = () => {
-        if (typeof previous === 'function') previous();
+        if (typeof previous === 'function') {
+          previous();
+        }
+
         resolve();
       };
-      const script = document.createElement('script');
-      script.src = 'https://www.youtube.com/iframe_api';
+
+      const script =
+        document.createElement('script');
+
+      script.src =
+        'https://www.youtube.com/iframe_api';
+
       document.head.appendChild(script);
     });
 
@@ -354,18 +343,38 @@
   }
 
   function setPlayingUi(playing) {
-    playIcon.hidden = playing;
-    pauseIcon.hidden = !playing;
-    playBtn.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
-    coverStage.classList.toggle('is-playing', playing);
+    if (playIcon) {
+      playIcon.hidden = playing;
+    }
+
+    if (pauseIcon) {
+      pauseIcon.hidden = !playing;
+    }
+
+    if (playBtn) {
+      playBtn.setAttribute(
+        'aria-label',
+        playing ? 'Pausar' : 'Reproducir'
+      );
+    }
+
+    if (coverStage) {
+      coverStage.classList.toggle(
+        'is-playing',
+        playing
+      );
+    }
   }
 
   function setPlayerMessage(message) {
+    if (!playerStatus) return;
+
     if (!message) {
       playerStatus.hidden = true;
       playerStatus.textContent = '';
       return;
     }
+
     playerStatus.hidden = false;
     playerStatus.textContent = message;
   }
@@ -378,371 +387,722 @@
   }
 
   function updateProgress() {
-    if (!ytPlayer || seeking || typeof ytPlayer.getCurrentTime !== 'function') return;
-    const duration = ytPlayer.getDuration() || 0;
-    const current = ytPlayer.getCurrentTime() || 0;
+    if (
+      !ytPlayer ||
+      seeking ||
+      typeof ytPlayer.getCurrentTime !== 'function'
+    ) {
+      return;
+    }
+
+    const duration =
+      ytPlayer.getDuration() || 0;
+
+    const current =
+      ytPlayer.getCurrentTime() || 0;
+
     if (duration > 0) {
       seekBar.max = String(duration);
       seekBar.value = String(current);
-      timeTotal.textContent = formatDuration(duration);
+
+      timeTotal.textContent =
+        formatDuration(duration);
     }
-    timeCurrent.textContent = formatDuration(current);
+
+    timeCurrent.textContent =
+      formatDuration(current);
   }
 
   function startProgress() {
     stopProgress();
+
     updateProgress();
-    progressTimer = setInterval(updateProgress, 400);
+
+    progressTimer =
+      setInterval(updateProgress, 400);
   }
 
   function destroyPlayer() {
     stopProgress();
+
     setPlayingUi(false);
-    if (ytPlayer && typeof ytPlayer.destroy === 'function') {
+
+    if (
+      ytPlayer &&
+      typeof ytPlayer.destroy === 'function'
+    ) {
       try {
         ytPlayer.destroy();
       } catch (_error) {
-        /* ignore */
+        // Ignorar errores al destruir.
       }
     }
+
     ytPlayer = null;
     ytReady = false;
-    seekBar.value = '0';
-    timeCurrent.textContent = '0:00';
 
-    if (!document.getElementById('yt-player')) {
-      const fresh = document.createElement('div');
+    if (seekBar) {
+      seekBar.value = '0';
+    }
+
+    if (timeCurrent) {
+      timeCurrent.textContent = '0:00';
+    }
+
+    const oldPlayer =
+      document.getElementById('yt-player');
+
+    if (oldPlayer) {
+      oldPlayer.remove();
+    }
+
+    const playerPanel =
+      document.querySelector('.player-panel');
+
+    if (playerPanel) {
+      const fresh =
+        document.createElement('div');
+
       fresh.id = 'yt-player';
       fresh.className = 'yt-player';
-      document.querySelector('.player-panel').prepend(fresh);
+
+      playerPanel.prepend(fresh);
     }
   }
 
   function ensurePlayer() {
-    if (ytPlayer) return Promise.resolve(ytPlayer);
-    return loadYouTubeApi().then(() => new Promise((resolve, reject) => {
-      ytPlayer = new window.YT.Player('yt-player', {
-        height: '1',
-        width: '1',
-        videoId: currentVideoId,
-        playerVars: {
-          autoplay: 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
-          modestbranding: 1,
-          playsinline: 1,
-          rel: 0,
-        },
-        events: {
-          onReady: (event) => {
-            ytReady = true;
-            const duration = event.target.getDuration() || 0;
-            seekBar.max = String(duration || 100);
-            timeTotal.textContent = formatDuration(duration);
-            resolve(event.target);
-          },
-          onStateChange: (event) => {
-            const playing = event.data === window.YT.PlayerState.PLAYING;
-            setPlayingUi(playing);
-            if (playing) {
-              setPlayerMessage('');
-              startProgress();
-            } else {
-              stopProgress();
-              updateProgress();
-            }
-            if (event.data === window.YT.PlayerState.ENDED) {
-              setPlayingUi(false);
-              seekBar.value = '0';
-              timeCurrent.textContent = '0:00';
-            }
-          },
-          onError: () => {
-            setPlayingUi(false);
-            setPlayerMessage('YouTube bloqueó la reproducción aquí. Prueba abrir el video en YouTube o descarga el audio.');
-            reject(new Error('No se pudo reproducir este video.'));
-          },
-        },
-      });
-    }));
+    if (ytPlayer) {
+      return Promise.resolve(ytPlayer);
+    }
+
+    return loadYouTubeApi().then(
+      () =>
+        new Promise((resolve, reject) => {
+          ytPlayer =
+            new window.YT.Player(
+              'yt-player',
+              {
+                height: '1',
+                width: '1',
+                videoId: currentVideoId,
+
+                playerVars: {
+                  autoplay: 0,
+                  controls: 0,
+                  disablekb: 1,
+                  fs: 0,
+                  modestbranding: 1,
+                  playsinline: 1,
+                  rel: 0,
+                },
+
+                events: {
+                  onReady: (event) => {
+                    ytReady = true;
+
+                    const duration =
+                      event.target.getDuration() || 0;
+
+                    seekBar.max =
+                      String(duration || 100);
+
+                    timeTotal.textContent =
+                      formatDuration(duration);
+
+                    resolve(event.target);
+                  },
+
+                  onStateChange: (event) => {
+                    const playing =
+                      event.data ===
+                      window.YT.PlayerState.PLAYING;
+
+                    setPlayingUi(playing);
+
+                    if (playing) {
+                      setPlayerMessage('');
+                      startProgress();
+                    } else {
+                      stopProgress();
+                      updateProgress();
+                    }
+
+                    if (
+                      event.data ===
+                      window.YT.PlayerState.ENDED
+                    ) {
+                      setPlayingUi(false);
+
+                      seekBar.value = '0';
+
+                      timeCurrent.textContent =
+                        '0:00';
+                    }
+                  },
+
+                  onError: () => {
+                    setPlayingUi(false);
+
+                    setPlayerMessage(
+                      'YouTube bloqueó la reproducción aquí. Puedes descargar el audio.'
+                    );
+
+                    reject(
+                      new Error(
+                        'No se pudo reproducir este video.'
+                      )
+                    );
+                  },
+                },
+              }
+            );
+        })
+    );
   }
 
   async function togglePlayback() {
     if (!currentVideoId) return;
+
     playBtn.disabled = true;
+
     setPlayerMessage('');
+
     try {
-      const player = await ensurePlayer();
-      const state = player.getPlayerState();
-      if (state === window.YT.PlayerState.PLAYING) {
+      const player =
+        await ensurePlayer();
+
+      const state =
+        player.getPlayerState();
+
+      if (
+        state ===
+        window.YT.PlayerState.PLAYING
+      ) {
         player.pauseVideo();
       } else {
         player.playVideo();
       }
     } catch (error) {
-      setPlayerMessage(error.message || 'No se pudo reproducir este video.');
+      setPlayerMessage(
+        error.message ||
+          'No se pudo reproducir este video.'
+      );
     } finally {
       playBtn.disabled = false;
     }
   }
 
-  playBtn.addEventListener('click', togglePlayback);
+  playBtn.addEventListener(
+    'click',
+    togglePlayback
+  );
 
-  seekBar.addEventListener('input', () => {
-    seeking = true;
-    timeCurrent.textContent = formatDuration(Number(seekBar.value));
-  });
+  seekBar.addEventListener(
+    'input',
+    () => {
+      seeking = true;
 
-  seekBar.addEventListener('change', () => {
-    seeking = false;
-    if (ytPlayer && ytReady && typeof ytPlayer.seekTo === 'function') {
-      ytPlayer.seekTo(Number(seekBar.value), true);
+      timeCurrent.textContent =
+        formatDuration(
+          Number(seekBar.value)
+        );
     }
-  });
+  );
 
-  function detectCoverTone(img) {
-    const probe = document.createElement('canvas');
-    probe.width = 32;
-    probe.height = 32;
-    const ctx = probe.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return 'color';
-    ctx.drawImage(img, 0, 0, 32, 32);
-    const { data } = ctx.getImageData(0, 0, 32, 32);
-    let sat = 0;
-    let val = 0;
-    const count = data.length / 4;
-    for (let i = 0; i < data.length; i += 4) {
-      const [, s, v] = rgbToHsv(data[i], data[i + 1], data[i + 2]);
-      sat += s;
-      val += v;
+  seekBar.addEventListener(
+    'change',
+    () => {
+      seeking = false;
+
+      if (
+        ytPlayer &&
+        ytReady &&
+        typeof ytPlayer.seekTo === 'function'
+      ) {
+        ytPlayer.seekTo(
+          Number(seekBar.value),
+          true
+        );
+      }
     }
-    sat /= count;
-    val /= count;
-    if (sat < 0.16) {
-      if (val < 0.34) return 'black';
-      if (val > 0.72) return 'white';
+  );
+
+  /*
+   * IMPORTANTE:
+   *
+   * Ya NO descargamos la portada.
+   * Ya NO llamamos /api/cover.
+   *
+   * Si el HTML todavía tiene la imagen de portada,
+   * simplemente la ocultamos.
+   */
+  function hideCover() {
+    if (previewThumb) {
+      previewThumb.removeAttribute('src');
+      previewThumb.style.display = 'none';
     }
-    return 'color';
+
+    if (downloadModalCover) {
+      downloadModalCover.removeAttribute('src');
+    }
+
+    if (downloadOverlay) {
+      downloadOverlay.hidden = true;
+    }
   }
 
-  previewThumb.addEventListener('load', () => {
-    const tone = detectCoverTone(previewThumb);
-    if (tone === 'black') {
-      applyPalette(MONO_BLACK);
-      return;
-    }
-    if (tone === 'white') {
-      applyPalette(MONO_WHITE);
-      return;
-    }
-    const extracted = extractPaletteFromImage(previewThumb);
-    if (extracted) applyPalette(extracted);
-  });
+  hideCover();
 
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const url = urlInput.value.trim();
-    if (!url) return;
+  /*
+   * BÚSQUEDA / VISTA PREVIA
+   *
+   * Solo pedimos /api/info.
+   * No descargamos portada.
+   * No hacemos análisis de colores de la imagen.
+   */
+  form.addEventListener(
+    'submit',
+    async (event) => {
+      event.preventDefault();
 
-    clearError();
-    setSearchLoading(true);
-    preview.hidden = true;
-    downloadStatus.hidden = true;
-    destroyPlayer();
-    setPlayerMessage('');
+      const url =
+        urlInput.value.trim();
 
-    try {
-      const response = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
-      const data = await response.json();
+      if (!url) return;
 
-      if (!response.ok) {
-        throw new Error(data.detail || 'No pudimos leer ese enlace.');
+      clearError();
+
+      setSearchLoading(true);
+
+      preview.hidden = true;
+
+      if (downloadStatus) {
+        downloadStatus.hidden = true;
       }
 
-      currentUrl = url;
-      currentVideoId = data.id || '';
-      applyPalette(data.palette);
-      previewThumb.src = coverSrc(data.thumbnail);
-      previewThumb.alt = data.title ? `Portada de ${data.title}` : 'Portada';
-      previewTitle.textContent = data.title || 'Sin título';
-      previewArtist.textContent = data.uploader || 'Artista desconocido';
-      previewDuration.textContent = formatDuration(data.duration);
-      timeTotal.textContent = formatDuration(data.duration);
-      timeCurrent.textContent = '0:00';
-      seekBar.value = '0';
-      playerNow.textContent = data.title
-        ? `${data.title}${data.uploader ? ` — ${data.uploader}` : ''}`
-        : 'Listo para reproducir';
-      playBtn.disabled = !currentVideoId;
+      destroyPlayer();
 
-      preview.hidden = false;
-      updateFormatUI();
-    } catch (error) {
-      resetPalette();
-      showError(
-        error.message ||
-          'No pudimos leer ese enlace. Verifica que sea un enlace válido de YouTube o YouTube Music.'
-      );
-    } finally {
-      setSearchLoading(false);
-    }
-  });
+      setPlayerMessage('');
 
-  downloadBtn.addEventListener('click', async () => {
-    if (!currentUrl) return;
+      currentUrl = '';
+      currentVideoId = '';
 
-    const format = selectedFormat();
+      try {
+        const response =
+          await fetch(
+            `/api/info?url=${encodeURIComponent(url)}`,
+            {
+              method: 'GET',
+              cache: 'no-store',
+            }
+          );
 
-    downloadBtn.disabled = true;
-    downloadBtn.classList.add('loading');
-    downloadBtnLabel.textContent = 'Descargando…';
-    downloadStatus.hidden = true;
+        const data =
+          await response.json();
 
-    openDownloadModal();
+        if (!response.ok) {
+          throw new Error(
+            data.detail ||
+              'No pudimos leer ese enlace.'
+          );
+        }
 
-    downloadController = new AbortController();
+        currentUrl = url;
 
-    try {
-      const response = await fetch('/api/download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          url: currentUrl,
-          format
-        }),
-        signal: downloadController.signal
-      });
+        currentVideoId =
+          data.id || '';
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(
-          data.detail || 'No se pudo completar la descarga.'
-        );
-      }
+        /*
+         * Aplicamos directamente la paleta
+         * proporcionada por la API.
+         *
+         * No esperamos ninguna imagen.
+         */
+        if (data.palette) {
+          applyPalette(data.palette);
+        }
 
-      const total = Number(response.headers.get('Content-Length')) || 0;
+        /*
+         * NO asignamos data.thumbnail.
+         *
+         * Esto evita descargar la portada.
+         */
+        hideCover();
 
-      const disposition =
-        response.headers.get('Content-Disposition') || '';
+        previewTitle.textContent =
+          data.title ||
+          'Sin título';
 
-      const match = disposition.match(/filename="?([^"]+)"?/);
+        previewArtist.textContent =
+          data.uploader ||
+          'Artista desconocido';
 
-      const filename =
-        match ? match[1] : `audio.${format}`;
+        previewDuration.textContent =
+          formatDuration(
+            data.duration
+          );
 
-      if (!response.body) {
-        throw new Error('El navegador no permite mostrar el progreso.');
-      }
+        timeTotal.textContent =
+          formatDuration(
+            data.duration
+          );
 
-      const reader = response.body.getReader();
+        timeCurrent.textContent =
+          '0:00';
 
-      const chunks = [];
-      let received = 0;
+        seekBar.value = '0';
 
-      const startTime = performance.now();
+        playerNow.textContent =
+          data.title
+            ? `${data.title}${
+                data.uploader
+                  ? ` — ${data.uploader}`
+                  : ''
+              }`
+            : 'Listo para reproducir';
 
-      while (true) {
-        const { done, value } = await reader.read();
+        playBtn.disabled =
+          !currentVideoId;
 
-        if (done) break;
+        preview.hidden = false;
 
-        chunks.push(value);
-        received += value.length;
+        updateFormatUI();
 
-        const elapsed =
-          (performance.now() - startTime) / 1000;
+      } catch (error) {
+        resetPalette();
 
-        const speed =
-          elapsed > 0 ? received / elapsed : 0;
-
-        const percent =
-          total > 0
-            ? (received / total) * 100
-            : 0;
-
-        const remaining =
-          total > 0 && speed > 0
-            ? (total - received) / speed
-            : null;
-
-        updateDownloadProgress(
-          percent,
-          received,
-          total,
-          speed,
-          remaining
-        );
-      }
-
-      updateDownloadProgress(
-        100,
-        received,
-        total,
-        0,
-        0
-      );
-
-      const blob = new Blob(chunks);
-
-      const objectUrl =
-        URL.createObjectURL(blob);
-
-      const link =
-        document.createElement('a');
-
-      link.href = objectUrl;
-      link.download = filename;
-
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      URL.revokeObjectURL(objectUrl);
-
-      await new Promise(resolve =>
-        setTimeout(resolve, 500)
-      );
-
-      closeDownloadModal();
-
-      downloadStatus.textContent =
-        format === 'wav'
-          ? 'Descarga completa.'
-          : 'Descarga completa, con portada incluida.';
-
-      downloadStatus.hidden = false;
-
-    } catch (error) {
-
-      if (error.name === 'AbortError') {
-        downloadStatus.textContent =
-          'Descarga cancelada.';
-      } else {
-        downloadStatus.textContent =
+        showError(
           error.message ||
-          'No se pudo completar la descarga.';
+            'No pudimos leer ese enlace. Verifica que sea un enlace válido de YouTube o YouTube Music.'
+        );
+      } finally {
+        setSearchLoading(false);
+      }
+    }
+  );
+
+  /*
+   * DESCARGA DIRECTA
+   *
+   * Ya no abrimos modal.
+   * Ya no mostramos portada.
+   * El archivo se descarga directamente
+   * cuando Render termina de prepararlo.
+   */
+  downloadBtn.addEventListener(
+    'click',
+    async () => {
+      if (!currentUrl) return;
+
+      const format =
+        selectedFormat();
+
+      downloadBtn.disabled = true;
+
+      downloadBtn.classList.add(
+        'loading'
+      );
+
+      if (downloadBtnLabel) {
+        downloadBtnLabel.textContent =
+          'Preparando…';
       }
 
-      downloadStatus.hidden = false;
+      if (downloadStatus) {
+        downloadStatus.hidden = false;
 
-      closeDownloadModal();
+        downloadStatus.textContent =
+          'Preparando la descarga…';
+      }
 
-    } finally {
+      downloadController =
+        new AbortController();
 
-      downloadController = null;
+      const startTime =
+        performance.now();
 
-      downloadBtn.disabled = false;
-      downloadBtn.classList.remove('loading');
-      downloadBtnLabel.textContent = 'Descargar';
+      /*
+       * Mostramos tiempo transcurrido
+       * mientras Render genera el archivo.
+       */
+      let elapsedTimer = null;
+
+      elapsedTimer =
+        setInterval(() => {
+          if (!downloadStatus) return;
+
+          const elapsed =
+            Math.floor(
+              (performance.now() -
+                startTime) /
+                1000
+            );
+
+          downloadStatus.textContent =
+            `Preparando la descarga… ${elapsed}s`;
+        }, 1000);
+
+      try {
+        const response =
+          await fetch(
+            '/api/download',
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+
+              body: JSON.stringify({
+                url: currentUrl,
+                format,
+              }),
+
+              signal:
+                downloadController.signal,
+            }
+          );
+
+        if (!response.ok) {
+          const data =
+            await response
+              .json()
+              .catch(() => ({}));
+
+          throw new Error(
+            data.detail ||
+              'No se pudo completar la descarga.'
+          );
+        }
+
+        if (!response.body) {
+          throw new Error(
+            'El navegador no permite descargar el archivo.'
+          );
+        }
+
+        /*
+         * Intentamos obtener el nombre enviado
+         * por FastAPI.
+         */
+        const disposition =
+          response.headers.get(
+            'Content-Disposition'
+          ) || '';
+
+        let filename =
+          `audio.${format}`;
+
+        /*
+         * Soporta:
+         *
+         * filename="cancion.mp3"
+         *
+         * y:
+         *
+         * filename*=UTF-8''canci%C3%B3n.mp3
+         */
+        const utfMatch =
+          disposition.match(
+            /filename\*=UTF-8''([^;]+)/i
+          );
+
+        const normalMatch =
+          disposition.match(
+            /filename="?([^"]+)"?/i
+          );
+
+        if (utfMatch) {
+          try {
+            filename =
+              decodeURIComponent(
+                utfMatch[1]
+              );
+          } catch (_error) {
+            filename =
+              utfMatch[1];
+          }
+        } else if (normalMatch) {
+          filename =
+            normalMatch[1];
+        }
+
+        /*
+         * Leemos el archivo.
+         *
+         * Si Render ya terminó de generarlo,
+         * aquí comenzará el progreso real.
+         */
+        const total =
+          Number(
+            response.headers.get(
+              'Content-Length'
+            )
+          ) || 0;
+
+        const reader =
+          response.body.getReader();
+
+        const chunks = [];
+
+        let received = 0;
+
+        while (true) {
+          const {
+            done,
+            value,
+          } = await reader.read();
+
+          if (done) break;
+
+          chunks.push(value);
+
+          received += value.length;
+
+          if (
+            total > 0 &&
+            downloadStatus
+          ) {
+            const percent =
+              Math.min(
+                100,
+                (received / total) *
+                  100
+              );
+
+            downloadStatus.textContent =
+              `Descargando… ${percent.toFixed(
+                0
+              )}%`;
+          }
+        }
+
+        const blob =
+          new Blob(
+            chunks,
+            {
+              type:
+                response.headers.get(
+                  'Content-Type'
+                ) ||
+                'application/octet-stream',
+            }
+          );
+
+        const objectUrl =
+          URL.createObjectURL(
+            blob
+          );
+
+        const link =
+          document.createElement(
+            'a'
+          );
+
+        link.href =
+          objectUrl;
+
+        link.download =
+          filename;
+
+        link.style.display =
+          'none';
+
+        document.body.appendChild(
+          link
+        );
+
+        link.click();
+
+        link.remove();
+
+        /*
+         * Liberamos memoria después
+         * de iniciar la descarga.
+         */
+        setTimeout(() => {
+          URL.revokeObjectURL(
+            objectUrl
+          );
+        }, 2000);
+
+        if (downloadStatus) {
+          downloadStatus.textContent =
+            '✓ Descarga completa.';
+        }
+
+      } catch (error) {
+        if (
+          error.name ===
+          'AbortError'
+        ) {
+          if (downloadStatus) {
+            downloadStatus.textContent =
+              'Descarga cancelada.';
+          }
+        } else {
+          if (downloadStatus) {
+            downloadStatus.textContent =
+              error.message ||
+              'No se pudo completar la descarga.';
+          }
+        }
+
+      } finally {
+        if (elapsedTimer) {
+          clearInterval(
+            elapsedTimer
+          );
+        }
+
+        downloadController =
+          null;
+
+        downloadBtn.disabled =
+          false;
+
+        downloadBtn.classList.remove(
+          'loading'
+        );
+
+        if (downloadBtnLabel) {
+          downloadBtnLabel.textContent =
+            'Descargar';
+        }
+      }
     }
-  });
-    cancelDownloadBtn.addEventListener('click', () => {
-    if (downloadController) {
-      downloadController.abort();
-    }
-  });
+  );
+
+  /*
+   * Botón cancelar.
+   *
+   * Aunque ya no usamos ventana emergente,
+   * mantenemos compatibilidad con el HTML.
+   */
+  if (cancelDownloadBtn) {
+    cancelDownloadBtn.addEventListener(
+      'click',
+      () => {
+        if (downloadController) {
+          downloadController.abort();
+        }
+      }
+    );
+  }
+
+  /*
+   * Si por alguna razón el HTML intenta
+   * mostrar la ventana antigua, la ocultamos.
+   */
+  if (downloadOverlay) {
+    downloadOverlay.hidden = true;
+  }
+
+  /*
+   * Inicialización.
+   */
+  updateFormatUI();
+  hideCover();
 
 })();
