@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 import base64
 import uuid
+import subprocess
+import sys
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -37,6 +39,23 @@ class InvalidYouTubeURLError(ValueError):
 
 class DownloadFailedError(RuntimeError):
     pass
+
+
+def _update_yt_dlp() -> None:
+    """
+    Intenta actualizar yt-dlp automáticamente.
+    Esto es crucial porque YouTube cambia constantemente.
+    """
+    try:
+        print("[yt-dlp] Intentando actualizar a la última versión...")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
+            capture_output=True,
+            timeout=60,
+        )
+        print("[yt-dlp] Actualización completada.")
+    except Exception as e:
+        print(f"[yt-dlp] No se pudo actualizar automáticamente: {e}")
 
 
 def validate_youtube_url(url: str) -> str:
@@ -186,9 +205,9 @@ def _base_ydl_options() -> dict[str, Any]:
 
     options: dict[str, Any] = {
 
-        "quiet": True,
+        "quiet": False,
 
-        "no_warnings": True,
+        "no_warnings": False,
 
         # Formato flexible que acepta cualquier audio disponible
         "format": (
@@ -199,29 +218,28 @@ def _base_ydl_options() -> dict[str, Any]:
             "best"
         ),
 
-        "retries": 15,
+        "retries": 20,
 
-        "fragment_retries": 15,
+        "fragment_retries": 20,
 
         "force_ipv4": True,
 
-        "socket_timeout": 60,
+        "socket_timeout": 90,
 
-        "connect_timeout": 60,
+        "connect_timeout": 90,
 
-        "read_timeout": 60,
+        "read_timeout": 90,
 
         "http_chunk_size": 10485760,
 
-        # Usar los runtimes más recientes para JS
-        "js_runtimes": {
-            "deno": {},
-            "node": {},
-        },
-
-        # Permitir componentes remotos para actualizar el extractor
-        "remote_components": {
-            "ejs:npm",
+        # CRUCIAL: Usar los extractores más recientes
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["web", "android", "ios", "mweb"],
+                "player_skip": [],
+                "skip": [],
+                "lang": ["es", "en"],
+            }
         },
 
         # Headers realistas y completos
@@ -232,7 +250,8 @@ def _base_ydl_options() -> dict[str, Any]:
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
                 "Chrome/130.0.0.0 "
-                "Safari/537.36"
+                "Safari/537.36 "
+                "Edg/130.0.0.0"
             ),
 
             "Accept-Language": (
@@ -259,18 +278,14 @@ def _base_ydl_options() -> dict[str, Any]:
             "Sec-Fetch-Mode": "navigate",
 
             "Sec-Fetch-Site": "none",
-        },
 
-        # Configuración agresiva del extractor de YouTube
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web", "android"],
-                "player_skip": [],
-                "skip": ["hls", "dash"],
-                "lang": ["es", "en"],
-                "youtube_include_dash_manifest": False,
-                "youtube_include_hls_manifest": False,
-            }
+            "Sec-Fetch-User": "?1",
+
+            "Sec-Ch-Ua": '"Microsoft Edge";v="130"',
+
+            "Sec-Ch-Ua-Mobile": "?0",
+
+            "Sec-Ch-Ua-Platform": '"Windows"',
         },
 
         "suppress_http_warnings": True,
@@ -282,20 +297,14 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "geo_bypass_country": "US",
 
-        # No verificar HTTPS (en caso de problemas de certificado)
-        "no_check_certificate": True,
-
         # Permitir más errores antes de fallar
         "skip_unavailable_fragments": True,
 
-        # Usar fragmentos de fallback
-        "fragment_retries": 15,
-
-        # No usar mpv u otros reproductores
+        # Preferir FFmpeg
         "prefer_ffmpeg": True,
 
-        # Establecer máxima calidad
-        "nocheckcertificate": True,
+        # Permitir formatos no reproducibles (para debugging)
+        "allow_unplayable_formats": False,
     }
 
     # Proxy support (useful if your server IP is geo-blocked)
@@ -316,6 +325,9 @@ def get_video_info(
 ) -> dict[str, Any]:
 
     validate_youtube_url(url)
+
+    # Intentar actualizar yt-dlp antes de extraer
+    _update_yt_dlp()
 
     options = _base_ydl_options()
 
@@ -482,6 +494,9 @@ def download_audio(
 
     _ensure_ffmpeg_available()
 
+    # Intentar actualizar yt-dlp antes de descargar
+    _update_yt_dlp()
+
     embed_thumbnail = (
         audio_format
         in THUMBNAIL_EMBED_FORMATS
@@ -520,6 +535,12 @@ def download_audio(
         )
 
         message = str(exc)
+
+        # Detectar error de player response (YouTube cambió)
+        if "Failed to extract any player response" in message:
+            raise DownloadFailedError(
+                "YouTube modificó su estructura. Actualizando yt-dlp automáticamente... Por favor intenta de nuevo en unos segundos."
+            ) from exc
 
         if (
             "Sign in to confirm"
