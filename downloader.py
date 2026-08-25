@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from collections.abc import Callable
 import os
 import re
 import shutil
@@ -22,6 +22,7 @@ SUPPORTED_FORMATS = {"mp3", "m4a", "opus", "wav"}
 # simplemente sin carátula incrustada).
 THUMBNAIL_EMBED_FORMATS = {"mp3", "m4a", "opus"}
 
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 class InvalidYouTubeURLError(ValueError):
     pass
@@ -152,7 +153,10 @@ def get_video_info(url: str) -> dict[str, Any]:
 
 
 def _build_ydl_options(
-    output_template: str, audio_format: str, embed_thumbnail: bool
+    output_template: str,
+    audio_format: str,
+    embed_thumbnail: bool,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     postprocessors: list[dict[str, Any]] = [
         {
@@ -176,7 +180,7 @@ def _build_ydl_options(
         # available".
         "extractor_args": {"youtube": {"player_client": ["web", "android", "ios"]}},
     }
-
+        "progress_hooks": [progress_callback] if progress_callback else [],
     cookies_file = _get_cookies_file()
     if cookies_file:
         options["cookiefile"] = cookies_file
@@ -194,14 +198,28 @@ def _build_ydl_options(
 
 
 def _run_yt_dlp(
-    output_template: str, url: str, audio_format: str, embed_thumbnail: bool
+    output_template: str,
+    url: str,
+    audio_format: str,
+    embed_thumbnail: bool,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any] | None:
-    options = _build_ydl_options(output_template, audio_format, embed_thumbnail)
+    options = _build_ydl_options(
+        output_template,
+        audio_format,
+        embed_thumbnail,
+        progress_callback,
+    )
+
     with yt_dlp.YoutubeDL(options) as ydl:
         return ydl.extract_info(url, download=True)
 
 
-def download_audio(url: str, audio_format: str = "mp3") -> tuple[Path, str]:
+def download_audio(
+    url: str,
+    audio_format: str = "mp3",
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[Path, str]:
     validate_youtube_url(url)
 
     audio_format = audio_format.lower()
@@ -217,7 +235,13 @@ def download_audio(url: str, audio_format: str = "mp3") -> tuple[Path, str]:
     output_template = str(temp_dir / "%(title)s.%(ext)s")
 
     try:
-        info = _run_yt_dlp(output_template, url, audio_format, embed_thumbnail)
+        info = _run_yt_dlp(
+    output_template,
+    url,
+    audio_format,
+    embed_thumbnail,
+    progress_callback,
+)
     except DownloadError as exc:
         if embed_thumbnail:
             # Si el fallo vino de la incrustación de la portada (por ejemplo,
@@ -228,7 +252,13 @@ def download_audio(url: str, audio_format: str = "mp3") -> tuple[Path, str]:
             temp_dir = Path(tempfile.mkdtemp(prefix="yt-audio-"))
             output_template = str(temp_dir / "%(title)s.%(ext)s")
             try:
-                info = _run_yt_dlp(output_template, url, audio_format, False)
+                info = _run_yt_dlp(
+    output_template,
+    url,
+    audio_format,
+    False,
+    progress_callback,
+)
             except DownloadError as exc_retry:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 raise DownloadFailedError(str(exc_retry)) from exc_retry
