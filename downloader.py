@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import os
-import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -12,13 +11,18 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 
-YOUTUBE_URL_PATTERN = re.compile(
-    r"^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|music\.youtube\.com/watch\?v=)[\w-]+"
-)
+SUPPORTED_FORMATS = {
+    "mp3",
+    "m4a",
+    "opus",
+    "wav",
+}
 
-SUPPORTED_FORMATS = {"mp3", "m4a", "opus", "wav"}
-
-THUMBNAIL_EMBED_FORMATS = {"mp3", "m4a", "opus"}
+THUMBNAIL_EMBED_FORMATS = {
+    "mp3",
+    "m4a",
+    "opus",
+}
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -31,64 +35,6 @@ class DownloadFailedError(RuntimeError):
     pass
 
 
-_WRITABLE_COOKIES_PATH = Path(tempfile.gettempdir()) / "sonora_cookies.txt"
-
-
-def _get_cookies_file() -> str | None:
-    source_path: Path | None = None
-
-    env_path = os.environ.get("YTDLP_COOKIES_FILE")
-
-    if env_path and Path(env_path).is_file():
-        source_path = Path(env_path)
-
-    if source_path is None:
-        local_path = Path(__file__).resolve().parent / "cookies.txt"
-
-        if local_path.is_file():
-            source_path = local_path
-
-    if source_path is None:
-        local_path = Path(__file__).resolve().parent.parent / "cookies.txt"
-
-        if local_path.is_file():
-            source_path = local_path
-
-    if source_path is None:
-        return None
-
-    try:
-        shutil.copyfile(
-            source_path,
-            _WRITABLE_COOKIES_PATH,
-        )
-    except OSError:
-        return None
-
-    return str(_WRITABLE_COOKIES_PATH)
-
-
-def _ensure_ffmpeg_available() -> None:
-    if shutil.which("ffmpeg") is not None:
-        return
-
-    for brew_bin in (
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-    ):
-        ffmpeg_path = Path(brew_bin) / "ffmpeg"
-
-        if ffmpeg_path.exists():
-            os.environ["PATH"] = (
-                f"{brew_bin}:{os.environ.get('PATH', '')}"
-            )
-            return
-
-    raise DownloadFailedError(
-        "ffmpeg no está instalado."
-    )
-
-
 def validate_youtube_url(url: str) -> str:
     url = url.strip()
 
@@ -97,7 +43,25 @@ def validate_youtube_url(url: str) -> str:
             "La URL no puede estar vacía."
         )
 
-    if not YOUTUBE_URL_PATTERN.match(url):
+    allowed = (
+        "youtube.com/",
+        "www.youtube.com/",
+        "youtu.be/",
+        "music.youtube.com/",
+    )
+
+    clean_url = url.lower()
+
+    if not (
+        clean_url.startswith("https://youtube.com/")
+        or clean_url.startswith("http://youtube.com/")
+        or clean_url.startswith("https://www.youtube.com/")
+        or clean_url.startswith("http://www.youtube.com/")
+        or clean_url.startswith("https://youtu.be/")
+        or clean_url.startswith("http://youtu.be/")
+        or clean_url.startswith("https://music.youtube.com/")
+        or clean_url.startswith("http://music.youtube.com/")
+    ):
         raise InvalidYouTubeURLError(
             "La URL no parece ser un enlace válido de YouTube."
         )
@@ -105,65 +69,99 @@ def validate_youtube_url(url: str) -> str:
     return url
 
 
-def _youtube_extractor_args() -> dict[str, Any]:
+def _ensure_ffmpeg_available() -> None:
+    if shutil.which("ffmpeg") is not None:
+        return
+
+    possible_paths = (
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+    )
+
+    for directory in possible_paths:
+        ffmpeg_path = Path(directory) / "ffmpeg"
+
+        if ffmpeg_path.exists():
+            os.environ["PATH"] = (
+                f"{directory}:{os.environ.get('PATH', '')}"
+            )
+            return
+
+    raise DownloadFailedError(
+        "ffmpeg no está instalado."
+    )
+
+
+def _base_ydl_options() -> dict[str, Any]:
+    """
+    Configuración común de yt-dlp.
+
+    No forzamos clientes específicos de YouTube.
+    Esto permite que yt-dlp seleccione la estrategia
+    compatible disponible.
+    """
+
     return {
-        "youtube": {
-            "player_client": [
-                "tv",
-                "web_embedded",
-                "ios",
-                "web",
-            ],
-        }
-    }
-
-
-def _base_options() -> dict[str, Any]:
-    options: dict[str, Any] = {
         "quiet": False,
         "no_warnings": False,
-        "verbose": True,
 
         "format": "bestaudio/best",
-
-        "extractor_args": _youtube_extractor_args(),
 
         "retries": 3,
         "fragment_retries": 3,
 
-        "ignoreerrors": False,
-
         "force_ipv4": True,
+
+        "js_runtimes": {
+            "deno": {},
+        },
+
+        "remote_components": {
+            "ejs:npm",
+        },
+
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/148.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        },
     }
-
-    cookies_file = _get_cookies_file()
-
-    if cookies_file:
-        options["cookiefile"] = cookies_file
-
-    return options
 
 
 def get_video_info(url: str) -> dict[str, Any]:
+
     validate_youtube_url(url)
 
-    options = _base_options()
+    options = _base_ydl_options()
 
-    options["skip_download"] = True
+    options.update(
+        {
+            "skip_download": True,
+        }
+    )
 
     try:
+
         with yt_dlp.YoutubeDL(options) as ydl:
+
             info = ydl.extract_info(
                 url,
                 download=False,
             )
 
     except DownloadError as exc:
+
         raise DownloadFailedError(
             str(exc)
         ) from exc
 
     if info is None:
+
         raise DownloadFailedError(
             "No se pudo obtener información del video."
         )
@@ -195,19 +193,15 @@ def _build_ydl_options(
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
 
-    options = _base_options()
+    options = _base_ydl_options()
 
-    options.update(
-        {
-            "outtmpl": output_template,
+    options["outtmpl"] = output_template
 
-            "progress_hooks": (
-                [progress_callback]
-                if progress_callback
-                else []
-            ),
-        }
-    )
+    if progress_callback:
+
+        options["progress_hooks"] = [
+            progress_callback
+        ]
 
     postprocessors: list[dict[str, Any]] = [
         {
@@ -246,16 +240,17 @@ def _run_yt_dlp(
     audio_format: str,
     embed_thumbnail: bool,
     progress_callback: ProgressCallback | None = None,
-) -> dict[str, Any] | None:
+):
 
     options = _build_ydl_options(
-        output_template,
-        audio_format,
-        embed_thumbnail,
-        progress_callback,
+        output_template=output_template,
+        audio_format=audio_format,
+        embed_thumbnail=embed_thumbnail,
+        progress_callback=progress_callback,
     )
 
     with yt_dlp.YoutubeDL(options) as ydl:
+
         return ydl.extract_info(
             url,
             download=True,
@@ -273,6 +268,7 @@ def download_audio(
     audio_format = audio_format.lower()
 
     if audio_format not in SUPPORTED_FORMATS:
+
         raise ValueError(
             f"Formato no soportado: {audio_format}. "
             f"Usa uno de: "
@@ -298,63 +294,51 @@ def download_audio(
     try:
 
         info = _run_yt_dlp(
-            output_template,
-            url,
-            audio_format,
-            embed_thumbnail,
-            progress_callback,
+            output_template=output_template,
+            url=url,
+            audio_format=audio_format,
+            embed_thumbnail=embed_thumbnail,
+            progress_callback=progress_callback,
         )
 
     except DownloadError as exc:
 
-        if embed_thumbnail:
+        shutil.rmtree(
+            temp_dir,
+            ignore_errors=True,
+        )
 
-            shutil.rmtree(
-                temp_dir,
-                ignore_errors=True,
-            )
+        message = str(exc)
 
-            temp_dir = Path(
-                tempfile.mkdtemp(
-                    prefix="yt-audio-"
-                )
-            )
-
-            output_template = str(
-                temp_dir / "%(title)s.%(ext)s"
-            )
-
-            try:
-
-                info = _run_yt_dlp(
-                    output_template,
-                    url,
-                    audio_format,
-                    False,
-                    progress_callback,
-                )
-
-            except DownloadError as exc_retry:
-
-                shutil.rmtree(
-                    temp_dir,
-                    ignore_errors=True,
-                )
-
-                raise DownloadFailedError(
-                    str(exc_retry)
-                ) from exc_retry
-
-        else:
-
-            shutil.rmtree(
-                temp_dir,
-                ignore_errors=True,
-            )
+        if "403" in message:
 
             raise DownloadFailedError(
-                str(exc)
+                "YouTube rechazó la descarga con HTTP 403. "
+                "El video requiere una autenticación o "
+                "PO Token que yt-dlp no pudo obtener."
             ) from exc
+
+        if "LOGIN_REQUIRED" in message:
+
+            raise DownloadFailedError(
+                "YouTube requiere iniciar sesión para "
+                "este video."
+            ) from exc
+
+        raise DownloadFailedError(
+            message
+        ) from exc
+
+    except Exception as exc:
+
+        shutil.rmtree(
+            temp_dir,
+            ignore_errors=True,
+        )
+
+        raise DownloadFailedError(
+            str(exc)
+        ) from exc
 
     if info is None:
 
@@ -386,11 +370,8 @@ def download_audio(
         )
 
         raise DownloadFailedError(
-            "La descarga terminó pero no se encontró "
-            "el archivo de audio."
+            "La descarga terminó pero "
+            "no se encontró el archivo de audio."
         )
 
-    return (
-        downloaded_files[0],
-        title,
-    )
+    return downloaded_files[0], title
