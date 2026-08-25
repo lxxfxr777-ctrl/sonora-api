@@ -135,15 +135,26 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "no_warnings": True,
 
-        "format": "bestaudio/best",
+        # Formato flexible que acepta cualquier audio disponible
+        "format": (
+            "bestaudio[ext=m4a]/"
+            "bestaudio[ext=webm]/"
+            "bestaudio[ext=mp4]/"
+            "bestaudio/"
+            "best"
+        ),
 
-        "retries": 5,
+        "retries": 10,
 
-        "fragment_retries": 5,
+        "fragment_retries": 10,
 
         "force_ipv4": True,
 
         "socket_timeout": 30,
+
+        "connect_timeout": 30,
+
+        "read_timeout": 30,
 
         "js_runtimes": {
             "deno": {},
@@ -185,13 +196,19 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "extractor_args": {
             "youtube": {
-                "player_client": ["web"],
-                "player_skip": ["js"],
+                "player_client": ["web", "mweb", "android"],
+                "player_skip": ["js", "webpage"],
                 "skip": ["hls", "dash"],
             }
         },
 
         "suppress_http_warnings": True,
+
+        "no_check_certificate": True,
+
+        "geo_bypass": True,
+
+        "geo_bypass_country": "US",
     }
 
     cookies_file = _get_cookie_file()
@@ -292,6 +309,8 @@ def _build_ydl_options(
             "preferredcodec": audio_format,
 
             "preferredquality": "192",
+
+            "nopostoverwrites": False,
         }
     ]
 
@@ -431,6 +450,14 @@ def download_audio(
                 "YouTube rechazó la descarga "
                 "con HTTP 403. "
                 "Intenta más tarde o verifica tu conexión."
+            ) from exc
+
+        if "Requested format is not available" in message:
+
+            raise DownloadFailedError(
+                "El formato de audio no está disponible para este video. "
+                "Es posible que sea un livestream, video privado o "
+                "esté restringido geográficamente."
             ) from exc
 
         raise DownloadFailedError(
