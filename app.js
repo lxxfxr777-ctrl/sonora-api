@@ -1671,18 +1671,334 @@
   /* =========================================
      DESCARGA
      ========================================= */
+    /* =========================================================
+     SISTEMA DE DESCARGA SONORA
+     ========================================================= */
+
+  const downloadHistoryList =
+    document.getElementById('download-history-list');
+
+  const downloadHistoryEmpty =
+    document.getElementById('download-history-empty');
+
+  const downloadCurrentArtist =
+    document.getElementById('download-current-artist');
+
+  const downloadProcessing =
+    document.getElementById('download-processing');
+
+  const downloadCenter =
+    document.getElementById('download-center');
+
+
+  let downloadHistory =
+    JSON.parse(localStorage.getItem('sonora_download_history') || '[]');
+
+
+  function saveDownloadHistory() {
+    localStorage.setItem(
+      'sonora_download_history',
+      JSON.stringify(downloadHistory.slice(0, 50))
+    );
+  }
+
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+
+  function renderDownloadHistory() {
+
+    if (!downloadHistoryList) return;
+
+    downloadHistoryList.innerHTML = '';
+
+    if (!downloadHistory.length) {
+
+      downloadHistoryList.innerHTML = `
+        <div
+          id="download-history-empty"
+          class="download-history-empty"
+        >
+          <span>♫</span>
+          <p>
+            Todavía no has descargado canciones.
+          </p>
+        </div>
+      `;
+
+      return;
+    }
+
+
+    downloadHistory.forEach((song, index) => {
+
+      const item =
+        document.createElement('div');
+
+      item.className =
+        'download-history-item';
+
+      item.innerHTML = `
+        <span class="download-history-number">
+          ${index + 1}
+        </span>
+
+        <div class="download-history-info">
+
+          <span class="download-history-title">
+            ${escapeHtml(song.title)}
+          </span>
+
+          <span class="download-history-artist">
+            ${escapeHtml(song.artist)}
+          </span>
+
+        </div>
+
+        <span class="download-history-format">
+          ${escapeHtml(song.format)}
+        </span>
+      `;
+
+      downloadHistoryList.appendChild(item);
+
+    });
+
+  }
+
+
+  function addToDownloadHistory(title, artist, format) {
+
+    const song = {
+      title: title || 'Canción desconocida',
+      artist: artist || 'Artista desconocido',
+      format: format || 'mp3',
+      date: Date.now()
+    };
+
+
+    downloadHistory =
+      downloadHistory.filter(item =>
+        !(
+          item.title === song.title &&
+          item.artist === song.artist &&
+          item.format === song.format
+        )
+      );
+
+
+    downloadHistory.unshift(song);
+
+    downloadHistory =
+      downloadHistory.slice(0, 50);
+
+    saveDownloadHistory();
+
+    renderDownloadHistory();
+
+  }
+
+
+  function sanitizeFilename(value) {
+
+    return String(value || '')
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[. ]+$/, '');
+
+  }
+
+
+  function createSongFilename(title, artist, format) {
+
+    const cleanTitle =
+      sanitizeFilename(title) || 'cancion';
+
+    const cleanArtist =
+      sanitizeFilename(artist);
+
+    let filename =
+      cleanArtist
+        ? `${cleanTitle} - ${cleanArtist}`
+        : cleanTitle;
+
+    return `${filename}.${format}`;
+
+  }
+
+
+  function setDownloadProcessing(active) {
+
+    if (!downloadProcessing) return;
+
+    downloadProcessing.hidden =
+      !active;
+
+  }
+
+
+  function setDownloadReadyState() {
+
+    if (!downloadPercent) return;
+
+    downloadPercent.textContent =
+      'Listo';
+
+    downloadSize.textContent =
+      'Esperando...';
+
+    downloadProgressBar.style.width =
+      '0%';
+
+    downloadSpeed.textContent =
+      '⚡ —';
+
+    downloadEta.textContent =
+      '⏱ —';
+
+  }
+
+
+  function startDownloadPanel(title, artist) {
+
+    if (downloadCenter) {
+
+      downloadCenter.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
+
+    }
+
+
+    downloadModalTitle.textContent =
+      title || 'Preparando canción...';
+
+    downloadCurrentArtist.textContent =
+      artist || 'Artista desconocido';
+
+
+    downloadPercent.textContent =
+      'Preparando';
+
+    downloadSize.textContent =
+      'Conectando...';
+
+    downloadProgressBar.style.width =
+      '0%';
+
+    downloadSpeed.textContent =
+      '⚡ —';
+
+    downloadEta.textContent =
+      '⏱ —';
+
+
+    setDownloadProcessing(true);
+
+    cancelDownloadBtn.hidden =
+      false;
+
+  }
+
+
+  function finishDownloadPanel() {
+
+    setDownloadProcessing(false);
+
+    cancelDownloadBtn.hidden =
+      true;
+
+  }
+
+
+  function updateDownloadProgress(
+    percent,
+    downloaded,
+    total,
+    speed,
+    eta
+  ) {
+
+    const safePercent =
+      Math.min(
+        100,
+        Math.max(
+          0,
+          Number(percent) || 0
+        )
+      );
+
+
+    downloadPercent.textContent =
+      `${safePercent.toFixed(0)}%`;
+
+    downloadProgressBar.style.width =
+      `${safePercent}%`;
+
+
+    if (total > 0) {
+
+      downloadSize.textContent =
+        `${formatBytes(downloaded)} / ${formatBytes(total)}`;
+
+    } else {
+
+      downloadSize.textContent =
+        formatBytes(downloaded);
+
+    }
+
+
+    downloadSpeed.textContent =
+      `⚡ ${
+        speed
+          ? formatBytes(speed) + '/s'
+          : '—'
+      }`;
+
+
+    downloadEta.textContent =
+      `⏱ ${
+        eta !== null &&
+        eta !== undefined
+          ? formatEta(eta)
+          : '—'
+      }`;
+
+  }
+
+
+  renderDownloadHistory();
+
 
   downloadBtn.addEventListener(
     'click',
     async () => {
 
-      if (!currentUrl) {
-        return;
-      }
+      if (!currentUrl) return;
 
 
       const format =
         selectedFormat();
+
+
+      const title =
+        previewTitle.textContent.trim() ||
+        'Canción';
+
+
+      const artist =
+        previewArtist.textContent.trim() ||
+        'Artista desconocido';
 
 
       downloadBtn.disabled =
@@ -1693,13 +2009,16 @@
       );
 
       downloadBtnLabel.textContent =
-        'Descargando…';
+        'Preparando…';
 
       downloadStatus.hidden =
         true;
 
 
-      openDownloadModal();
+      startDownloadPanel(
+        title,
+        artist
+      );
 
 
       downloadController =
@@ -1708,11 +2027,18 @@
 
       try {
 
+        /*
+         * IMPORTANTE:
+         * Aquí comienza la solicitud.
+         * Mientras el servidor prepara el audio
+         * mostramos "Procesando audio..."
+         * en lugar de dejar al usuario mirando 0%.
+         */
+
         const response =
           await fetch(
             '/api/download',
             {
-
               method: 'POST',
 
               headers: {
@@ -1720,11 +2046,10 @@
                   'application/json'
               },
 
-              body:
-                JSON.stringify({
-                  url: currentUrl,
-                  format
-                }),
+              body: JSON.stringify({
+                url: currentUrl,
+                format
+              }),
 
               signal:
                 downloadController.signal
@@ -1737,15 +2062,27 @@
           const data =
             await response
               .json()
-              .catch(
-                () => ({})
-              );
+              .catch(() => ({}));
+
 
           throw new Error(
             data.detail ||
             'No se pudo completar la descarga.'
           );
+
         }
+
+
+        /*
+         * Cuando el servidor comienza a enviar
+         * realmente el archivo, cambiamos
+         * el texto de preparación por progreso.
+         */
+
+        setDownloadProcessing(false);
+
+        downloadBtnLabel.textContent =
+          'Descargando…';
 
 
         const total =
@@ -1756,65 +2093,12 @@
           ) || 0;
 
 
-        const disposition =
-          response.headers.get(
-            'Content-Disposition'
-          ) || '';
-
-
-        let filename =
-          `audio.${format}`;
-
-
-        /*
-         * Usamos el nombre enviado
-         * por el servidor.
-         *
-         * Si el servidor ya genera:
-         *
-         * Cancion - Artista.mp3
-         *
-         * se conservará ese nombre.
-         */
-
-        const utf8Match =
-          disposition.match(
-            /filename\*=UTF-8''([^;]+)/i
-          );
-
-        const normalMatch =
-          disposition.match(
-            /filename="?([^"]+)"?/i
-          );
-
-
-        if (utf8Match) {
-
-          try {
-
-            filename =
-              decodeURIComponent(
-                utf8Match[1]
-              );
-
-          } catch (_) {
-
-            filename =
-              utf8Match[1];
-          }
-
-        } else if (normalMatch) {
-
-          filename =
-            normalMatch[1];
-        }
-
-
         if (!response.body) {
 
           throw new Error(
-            'El navegador no permite mostrar el progreso.'
+            'El navegador no permite recibir el archivo.'
           );
+
         }
 
 
@@ -1830,46 +2114,30 @@
           performance.now();
 
 
-        /*
-         * Mostrar progreso inmediatamente.
-         */
-
-        updateDownloadProgress(
-          3,
-          0,
-          total,
-          0,
-          null
-        );
-
-
         while (true) {
 
           const {
             done,
             value
-          } =
-            await reader.read();
+          } = await reader.read();
 
 
-          if (done) {
-            break;
+          if (done) break;
+
+
+          if (value) {
+
+            chunks.push(value);
+
+            received +=
+              value.length;
+
           }
 
 
-          chunks.push(
-            value
-          );
-
-          received +=
-            value.length;
-
-
           const elapsed =
-            (
-              performance.now() -
-              startTime
-            ) / 1000;
+            (performance.now() -
+              startTime) / 1000;
 
 
           const speed =
@@ -1878,45 +2146,56 @@
               : 0;
 
 
-          let percent =
-            total > 0
-              ? (
-                  received /
-                  total
-                ) * 100
-              : 0;
-
-
           /*
-           * Evitamos que visualmente
-           * parezca congelado al 0%.
+           * Si el servidor no informa Content-Length
+           * mostramos progreso por bytes recibidos,
+           * pero nunca dejamos al usuario pensando
+           * que la descarga está congelada.
            */
 
-          if (
-            percent < 3 &&
-            received > 0
-          ) {
-            percent = 3;
-          }
+          const percent =
+            total > 0
+              ? (received / total) * 100
+              : 0;
 
 
           const remaining =
             total > 0 &&
             speed > 0
-              ? (
-                  total -
-                  received
-                ) / speed
+              ? (total - received) / speed
               : null;
 
 
-          updateDownloadProgress(
-            percent,
-            received,
-            total,
-            speed,
-            remaining
-          );
+          if (total > 0) {
+
+            updateDownloadProgress(
+              percent,
+              received,
+              total,
+              speed,
+              remaining
+            );
+
+          } else {
+
+            downloadPercent.textContent =
+              'Descargando';
+
+            downloadSize.textContent =
+              formatBytes(received);
+
+            downloadSpeed.textContent =
+              `⚡ ${
+                speed
+                  ? formatBytes(speed) + '/s'
+                  : '—'
+              }`;
+
+            downloadEta.textContent =
+              '⏱ Calculando...';
+
+          }
+
         }
 
 
@@ -1929,9 +2208,29 @@
         );
 
 
+        /*
+         * El nombre se genera directamente
+         * usando canción + artista.
+         */
+
+        const filename =
+          createSongFilename(
+            title,
+            artist,
+            format
+          );
+
+
         const blob =
           new Blob(
-            chunks
+            chunks,
+            {
+              type:
+                response.headers.get(
+                  'Content-Type'
+                ) ||
+                'application/octet-stream'
+            }
           );
 
 
@@ -1942,9 +2241,7 @@
 
 
         const link =
-          document.createElement(
-            'a'
-          );
+          document.createElement('a');
 
 
         link.href =
@@ -1969,40 +2266,42 @@
 
 
         /*
-         * AGREGAR A LA LISTA
+         * Añadir al historial SOLO cuando
+         * la descarga terminó correctamente.
          */
 
-        addDownloadedSong(
-          currentTitle,
-          currentArtist,
+        addToDownloadHistory(
+          title,
+          artist,
           format
         );
 
 
         downloadStatus.textContent =
-          'Descarga completa.';
+          `Descarga completa: ${filename}`;
 
         downloadStatus.hidden =
           false;
 
 
-        /*
-         * Dejamos el recuadro
-         * visible un momento
-         * mostrando 100%.
-         */
+        downloadPercent.textContent =
+          '100%';
 
-        setTimeout(
-          () => {
 
-            closeDownloadModal();
+        downloadSize.textContent =
+          'Descarga completa';
 
-          },
-          700
-        );
+
+        downloadSpeed.textContent =
+          '✓ Listo';
+
+
+        downloadEta.textContent =
+          '✓ Guardado';
 
 
       } catch (error) {
+
 
         if (
           error.name ===
@@ -2012,11 +2311,22 @@
           downloadStatus.textContent =
             'Descarga cancelada.';
 
+          downloadPercent.textContent =
+            'Cancelada';
+
+          downloadSize.textContent =
+            '';
+
+
         } else {
 
           downloadStatus.textContent =
             error.message ||
             'No se pudo completar la descarga.';
+
+          downloadPercent.textContent =
+            'Error';
+
         }
 
 
@@ -2024,13 +2334,14 @@
           false;
 
 
-        closeDownloadModal();
-
-
       } finally {
 
         downloadController =
           null;
+
+
+        finishDownloadPanel();
+
 
         downloadBtn.disabled =
           false;
@@ -2041,7 +2352,9 @@
 
         downloadBtnLabel.textContent =
           'Descargar';
+
       }
+
     }
   );
 
@@ -2055,14 +2368,9 @@
         downloadController.abort();
 
       }
+
     }
   );
 
-
-  /*
-   * Estado inicial
-   */
-
-  updateFormatUI();
 
 })();
