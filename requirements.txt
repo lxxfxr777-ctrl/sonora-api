@@ -1,6 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
-yt-dlp>=2026.08.01
+yt-dlp[default]>=2026.08.01
 yt-dlp-ejs
 python-multipart>=0.0.12
 mutagen>=1.47.0
