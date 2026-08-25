@@ -266,57 +266,6 @@ def _base_ydl_options() -> dict[str, Any]:
     return options
 
 
-def _try_cookies_from_browser(url: str, base_options: dict[str, Any], download: bool) -> dict[str, Any] | None:
-    """Attempt to let yt-dlp read cookies directly from local browsers.
-
-    This tries a list of common browser names supported by yt-dlp's
-    --cookies-from-browser feature. It returns the info dict if successful,
-    or None if all attempts fail.
-    """
-    # Browsers to try (order matters: chrome/chromium first)
-    browsers = os.environ.get("YTDLP_COOKIES_FROM_BROWSER", "chrome,chromium,firefox,edge,safari").split(",")
-
-    for browser in browsers:
-        browser = browser.strip()
-        if not browser:
-            continue
-
-        opts = dict(base_options)
-        # Use the yt-dlp option name for cookies-from-browser
-        opts["cookiesfrombrowser"] = browser
-
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(
-                    url,
-                    download=download,
-                )
-
-                # If we get an info dict, consider the attempt successful
-                if info is not None:
-                    print(f"INFO: used cookies from browser '{browser}'")
-                    return info
-
-        except DownloadError as exc:
-            message = str(exc)
-            # If the failure is related to login, try the next browser
-            if (
-                "Sign in to confirm" in message
-                or "LOGIN_REQUIRED" in message
-            ):
-                print(f"WARN: browser '{browser}' did not provide valid cookies (LOGIN_REQUIRED)")
-                continue
-
-            # For other errors, re-raise so we don't mask issues
-            raise
-
-        except Exception:
-            # If any unexpected error occurs while trying a browser, continue
-            continue
-
-    return None
-
-
 def get_video_info(
     url: str,
 ) -> dict[str, Any]:
@@ -339,28 +288,30 @@ def get_video_info(
             )
 
     except DownloadError as exc:
+
         message = str(exc)
 
-        # If the error indicates login is required, try reading cookies from browser
+        # If the error indicates login is required, do NOT attempt the browser fallback here
+        # because some yt-dlp versions expose an internal API that can raise TypeError
+        # in certain environments. Instead, surface a clear error to the client
+        # explaining how to provide cookies.
         if (
             "Sign in to confirm" in message
             or "LOGIN_REQUIRED" in message
         ):
-            try:
-                fallback = _try_cookies_from_browser(url, options, download=False)
-                if fallback is not None:
-                    info = fallback
-                else:
-                    raise DownloadFailedError(
-                        "YouTube está bloqueando esta solicitud. Las cookies no son válidas o la sesión requiere autenticación. Proporciona cookies (YTDLP_COOKIES_B64/YTDLP_COOKIES or YTDLP_COOKIES_FILE)."
-                    ) from exc
-            except DownloadError as exc2:
-                raise DownloadFailedError(str(exc2)) from exc2
-
-        else:
             raise DownloadFailedError(
-                str(exc)
+                "YouTube está bloqueando esta solicitud. Proporciona cookies válidas para yt-dlp.\n\n"
+                "Opciones:\n"
+                " - Monta un archivo cookies.txt en /app/cookies.txt dentro del contenedor.\n"
+                " - Establece la variable de entorno YTDLP_COOKIES_FILE con la ruta al archivo cookies.txt.\n"
+                " - Establece la variable de entorno YTDLP_COOKIES_B64 con el contenido base64 del archivo cookies.txt.\n"
+                " - Establece la variable de entorno YTDLP_COOKIES con el contenido raw del archivo cookies.txt.\n\n"
+                "Consulta: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"
             ) from exc
+
+        raise DownloadFailedError(
+            str(exc)
+        ) from exc
 
     if info is None:
 
@@ -545,48 +496,32 @@ def download_audio(
 
         message = str(exc)
 
-        # If login required, try to read cookies directly from browsers installed on host
         if (
-            "Sign in to confirm" in message
-            or "LOGIN_REQUIRED" in message
+            "Sign in to confirm"
+            in message
+            or "LOGIN_REQUIRED"
+            in message
         ):
-            try:
-                # Build base options to reuse when trying cookies-from-browser
-                base_opts = _build_ydl_options(
-                    output_template=output_template,
-                    audio_format=audio_format,
-                    embed_thumbnail=embed_thumbnail,
-                    progress_callback=progress_callback,
-                )
-
-                fallback = _try_cookies_from_browser(url, base_opts, download=True)
-
-                if fallback is None:
-                    raise DownloadFailedError(
-                        "YouTube está bloqueando esta solicitud. Las cookies de YouTube no son válidas o la sesión requiere autenticación. Proporciona cookies mediante YTDLP_COOKIES_B64/YTDLP_COOKIES/YTDLP_COOKIES_FILE o monta /app/cookies.txt."
-                    ) from exc
-
-                info = fallback
-
-            except DownloadError as exc2:
-                raise DownloadFailedError(str(exc2)) from exc2
-
-        else:
-            if "HTTP Error 403" in message:
-
-                raise DownloadFailedError(
-                    "YouTube rechazó la descarga con HTTP 403. Intenta más tarde o verifica tu conexión."
-                ) from exc
-
-            if "Requested format is not available" in message:
-
-                raise DownloadFailedError(
-                    "El formato de audio no está disponible para este video. Es posible que sea un livestream, video privado o esté restringido geográficamente."
-                ) from exc
 
             raise DownloadFailedError(
-                message
+                "YouTube está bloqueando esta solicitud. Las cookies de YouTube no son válidas o la sesión requiere autenticación. Proporciona cookies mediante YTDLP_COOKIES_B64/YTDLP_COOKIES or YTDLP_COOKIES_FILE o monta /app/cookies.txt."
             ) from exc
+
+        if "HTTP Error 403" in message:
+
+            raise DownloadFailedError(
+                "YouTube rechazó la descarga con HTTP 403. Intenta más tarde o verifica tu conexión."
+            ) from exc
+
+        if "Requested format is not available" in message:
+
+            raise DownloadFailedError(
+                "El formato de audio no está disponible para este video. Es posible que sea un livestream, video privado o esté restringido geográficamente."
+            ) from exc
+
+        raise DownloadFailedError(
+            message
+        ) from exc
 
     except Exception as exc:
 
