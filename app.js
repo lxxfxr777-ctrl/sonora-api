@@ -1684,4 +1684,78 @@
    * ya tiene el contenedor.
    */
   renderDownloadedSongs();
+  /* =========================================
+     MOVIMIENTO DE LA VENTANA DE DESCARGA
+     SIGUIENDO EL CURSOR
+     ========================================= */
+
+  if (downloadOverlay) {
+
+    let mouseX = 0;
+    let mouseY = 0;
+
+    let targetX = 0;
+    let targetY = 0;
+
+    let currentX = 0;
+    let currentY = 0;
+
+    document.addEventListener(
+      'mousemove',
+      event => {
+
+        mouseX =
+          event.clientX /
+          window.innerWidth;
+
+        mouseY =
+          event.clientY /
+          window.innerHeight;
+
+
+        /*
+         * Movimiento máximo:
+         * 12px horizontal
+         * 8px vertical
+         */
+
+        targetX =
+          (mouseX - 0.5) * 24;
+
+        targetY =
+          (mouseY - 0.5) * 16;
+
+      }
+    );
+
+
+    function animateDownloadWindow() {
+
+      currentX +=
+        (targetX - currentX) * 0.08;
+
+      currentY +=
+        (targetY - currentY) * 0.08;
+
+
+      downloadOverlay.style.setProperty(
+        '--download-move-x',
+        `${currentX.toFixed(2)}px`
+      );
+
+      downloadOverlay.style.setProperty(
+        '--download-move-y',
+        `${currentY.toFixed(2)}px`
+      );
+
+
+      requestAnimationFrame(
+        animateDownloadWindow
+      );
+    }
+
+
+    animateDownloadWindow();
+
+  }
 })();
