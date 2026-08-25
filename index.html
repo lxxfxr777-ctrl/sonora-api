@@ -8,7 +8,7 @@
 
 <meta
   name="description"
-  content="Pega un enlace de YouTube o YouTube Music, previsualiza la portada y descarga el audio."
+  content="Pega un enlace de YouTube o YouTube Music y descarga el audio."
 >
 
 <link
@@ -39,692 +39,623 @@
   </div>
 
 
-  <main class="page">
-
-    <!-- MARCA -->
-    <header class="brand">
-
-      <span
-        class="brand-mark"
-        aria-hidden="true"
-      ></span>
-
-      <h1 class="brand-name">
-        SONORA
-      </h1>
-
-      <p class="brand-line">
-        Pega el link, mira la portada y descarga tu canción.
-      </p>
-
-    </header>
+  <main class="site-layout">
 
 
-    <!-- BUSCADOR -->
-    <section
-      class="link-panel"
-      aria-label="Enlace de YouTube"
-    >
+    <!-- =========================================
+         IZQUIERDA - CANCIONES DESCARGADAS
+         ========================================= -->
 
-      <form
-        id="search-form"
-        novalidate
-      >
+    <aside class="downloads-panel">
 
-        <label
-          for="url-input"
-          class="field-label"
-        >
-          Enlace de YouTube / YouTube Music
-        </label>
+      <div class="side-header">
+        <div class="side-icon">♫</div>
 
-        <div class="link-row">
-
-          <input
-            id="url-input"
-            name="url"
-            type="url"
-            class="url-input"
-            placeholder="https://www.youtube.com/watch?v=..."
-            autocomplete="off"
-            inputmode="url"
-            required
-          >
-
-          <button
-            type="submit"
-            id="search-btn"
-            class="btn btn-ghost"
-          >
-            Vista previa
-          </button>
-
+        <div>
+          <h2>Canciones</h2>
+          <span>Descargadas</span>
         </div>
-
-      </form>
-
-      <p
-        id="search-error"
-        class="error"
-        role="alert"
-        hidden
-      ></p>
-
-    </section>
-
-
-    <!-- PREVISUALIZACIÓN -->
-    <section
-      id="preview"
-      class="preview"
-      hidden
-    >
-
-      <!-- PORTADA -->
-      <div class="cover-stage">
-
-        <div class="cover-frame">
-
-          <img
-            id="preview-thumb"
-            class="cover-art"
-            src=""
-            alt=""
-          >
-
-        </div>
-
-        <div
-          class="cover-glow"
-          aria-hidden="true"
-        ></div>
-
       </div>
 
-
-      <!-- INFORMACIÓN DE LA CANCIÓN -->
-      <div class="track-panel">
-
-        <h2
-          id="preview-title"
-          class="track-title"
-        ></h2>
-
-        <p
-          id="preview-artist"
-          class="track-artist"
-        ></p>
-
-
-        <div class="track-stats">
-
-          <span class="stat">
-
-            <span class="stat-label">
-              Duración
-            </span>
-
-            <span
-              id="preview-duration"
-              class="stat-value"
-            >
-              —
-            </span>
-
-          </span>
-
-
-          <span class="stat">
-
-            <span class="stat-label">
-              Formato
-            </span>
-
-            <span
-              id="preview-format-label"
-              class="stat-value"
-            >
-              MP3
-            </span>
-
-          </span>
-
-        </div>
-
-
-        <!-- FORMATOS -->
+      <div
+        id="download-history"
+        class="download-history"
+      >
         <div
-          class="format-picker"
-          role="radiogroup"
-          aria-label="Formato de audio"
+          id="empty-history"
+          class="empty-history"
         >
+          <div class="empty-history-icon">♪</div>
 
-          <label class="chip">
+          <p>Aún no has descargado canciones.</p>
 
-            <input
-              type="radio"
-              name="format"
-              value="mp3"
-              checked
-            >
-
-            <span>
-              MP3
-            </span>
-
-          </label>
-
-
-          <label class="chip">
-
-            <input
-              type="radio"
-              name="format"
-              value="m4a"
-            >
-
-            <span>
-              M4A
-            </span>
-
-          </label>
-
-
-          <label class="chip">
-
-            <input
-              type="radio"
-              name="format"
-              value="opus"
-            >
-
-            <span>
-              OPUS
-            </span>
-
-          </label>
-
-
-          <label class="chip">
-
-            <input
-              type="radio"
-              name="format"
-              value="wav"
-            >
-
-            <span>
-              WAV
-            </span>
-
-          </label>
-
+          <span>
+            Tus descargas aparecerán aquí.
+          </span>
         </div>
+      </div>
+
+    </aside>
 
 
-        <p
-          id="format-note"
-          class="format-note"
-          hidden
-        >
-          WAV no incrusta portada; los demás formatos sí.
+
+    <!-- =========================================
+         CENTRO - SONORA
+         ========================================= -->
+
+    <section class="main-content">
+
+      <header class="brand">
+
+        <span
+          class="brand-mark"
+          aria-hidden="true"
+        ></span>
+
+        <h1 class="brand-name">
+          SONORA
+        </h1>
+
+        <p class="brand-line">
+          Pega el link, escucha y descarga tu canción.
         </p>
 
-
-        <!-- BOTÓN DESCARGAR -->
-        <button
-          type="button"
-          id="download-btn"
-          class="btn btn-download"
-        >
-
-          <span
-            class="eq"
-            aria-hidden="true"
-          >
-            <i></i>
-            <i></i>
-            <i></i>
-            <i></i>
-          </span>
-
-          <span class="download-btn-label">
-            Descargar
-          </span>
-
-        </button>
+      </header>
 
 
-        <p
-          id="download-status"
-          class="status"
-          role="status"
-          hidden
-        ></p>
 
-      </div>
-
-
-      <!-- REPRODUCTOR -->
-      <div
-        class="player-panel"
-        aria-label="Reproductor"
-      >
-
-        <div
-          id="yt-player"
-          class="yt-player"
-        ></div>
-
-
-        <button
-          type="button"
-          id="play-btn"
-          class="play-btn"
-          aria-label="Reproducir"
-        >
-
-          <svg
-            id="play-icon"
-            class="play-icon"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              d="M8 5.5v13l11-6.5-11-6.5z"
-              fill="currentColor"
-            ></path>
-          </svg>
-
-
-          <svg
-            id="pause-icon"
-            class="pause-icon"
-            viewBox="0 0 24 24"
-            hidden
-            aria-hidden="true"
-          >
-            <path
-              d="M7 5h4v14H7V5zm6 0h4v14h-4V5z"
-              fill="currentColor"
-            ></path>
-          </svg>
-
-        </button>
-
-
-        <div class="player-main">
-
-          <div class="player-meta">
-
-            <span class="player-label">
-              Escuchar ahora
-            </span>
-
-            <span
-              id="player-now"
-              class="player-now"
-            >
-              Listo para reproducir
-            </span>
-
-          </div>
-
-
-          <div class="seek-wrap">
-
-            <input
-              id="seek-bar"
-              class="seek-bar"
-              type="range"
-              min="0"
-              max="100"
-              value="0"
-              step="0.1"
-              aria-label="Progreso"
-            >
-
-            <div class="player-times">
-
-              <span id="time-current">
-                0:00
-              </span>
-
-              <span id="time-total">
-                0:00
-              </span>
-
-            </div>
-
-          </div>
-
-        </div>
-
-
-        <p
-          id="player-status"
-          class="player-status"
-          role="status"
-          hidden
-        ></p>
-
-      </div>
-
-
-      <!-- ==================================================
-           CENTRO DE DESCARGAS
-           ================================================== -->
+      <!-- BUSCADOR -->
 
       <section
-        id="download-overlay"
-        class="download-overlay"
-        hidden
-        aria-label="Centro de descargas"
+        class="link-panel"
+        aria-label="Enlace de YouTube"
       >
 
+        <form
+          id="search-form"
+          novalidate
+        >
 
-        <!-- ================================================
-             IZQUIERDA — HISTORIAL
-             ================================================ -->
-
-        <div class="download-history">
-
-          <div class="download-section-header">
-
-            <div>
-
-              <span class="download-section-kicker">
-                TU BIBLIOTECA
-              </span>
-
-              <h2>
-                Descargas
-              </h2>
-
-            </div>
-
-            <span
-              id="download-history-count"
-              class="download-history-count"
-            >
-              0
-            </span>
-
-          </div>
-
-
-          <div
-            id="download-history-list"
-            class="download-history-list"
+          <label
+            for="url-input"
+            class="field-label"
           >
+            Enlace de YouTube / YouTube Music
+          </label>
 
-            <div
-              id="download-history-empty"
-              class="download-history-empty"
+          <div class="link-row">
+
+            <input
+              id="url-input"
+              name="url"
+              type="url"
+              class="url-input"
+              placeholder="https://www.youtube.com/watch?v=..."
+              autocomplete="off"
+              inputmode="url"
+              required
             >
 
-              <div class="history-empty-icon">
-                ♪
-              </div>
-
-              <strong>
-                Aún no hay descargas
-              </strong>
-
-              <span>
-                Tus canciones aparecerán aquí.
-              </span>
-
-            </div>
-
-          </div>
-
-        </div>
-
-
-        <!-- ================================================
-             CENTRO — DESCARGA ACTUAL
-             ================================================ -->
-
-        <div class="download-current">
-
-          <div class="download-current-header">
-
-            <div>
-
-              <span class="download-modal-label">
-                DESCARGA ACTUAL
-              </span>
-
-              <h3
-                id="download-modal-title"
-              >
-                Preparando canción...
-              </h3>
-
-            </div>
-
-            <span
-              id="download-percent"
-              class="download-current-percent"
+            <button
+              type="submit"
+              id="search-btn"
+              class="btn btn-ghost"
             >
-              0%
-            </span>
+              Vista previa
+            </button>
 
           </div>
 
-
-          <!-- ESTADO -->
-          <div
-            id="download-preparing"
-            class="download-preparing"
-          >
-
-            <span class="download-spinner"></span>
-
-            <span>
-              Preparando audio...
-            </span>
-
-          </div>
-
-
-          <!-- BARRA -->
-          <div class="download-progress-track">
-
-            <div
-              id="download-progress-bar"
-              class="download-progress-bar"
-            ></div>
-
-          </div>
-
-
-          <!-- DATOS -->
-          <div class="download-details">
-
-            <span id="download-size">
-              Preparando...
-            </span>
-
-            <span id="download-speed">
-              ⚡ —
-            </span>
-
-            <span id="download-eta">
-              ⏱ —
-            </span>
-
-          </div>
-
-
-          <!-- NOMBRE DEL ARCHIVO -->
-          <div class="download-file-preview">
-
-            <span class="download-file-icon">
-              ♪
-            </span>
-
-            <div>
-
-              <span class="download-file-label">
-                ARCHIVO
-              </span>
-
-              <strong
-                id="download-filename-preview"
-              >
-                Preparando nombre...
-              </strong>
-
-            </div>
-
-          </div>
-
-
-          <!-- CANCELAR -->
-          <button
-            type="button"
-            id="cancel-download-btn"
-            class="cancel-download-btn"
-            aria-label="Cancelar descarga"
-          >
-            Cancelar
-          </button>
-
-        </div>
-
-
-        <!-- ================================================
-             DERECHA — INFORMACIÓN ÚTIL
-             ================================================ -->
-
-        <aside class="download-tools">
-
-          <div class="download-section-header">
-
-            <div>
-
-              <span class="download-section-kicker">
-                SONORA TOOLS
-              </span>
-
-              <h2>
-                Tu descarga
-              </h2>
-
-            </div>
-
-          </div>
-
-
-          <div class="download-tool-card">
-
-            <span class="download-tool-icon">
-              ♪
-            </span>
-
-            <div>
-
-              <span class="download-tool-label">
-                FORMATO
-              </span>
-
-              <strong
-                id="download-tool-format"
-              >
-                MP3
-              </strong>
-
-            </div>
-
-          </div>
-
-
-          <div class="download-tool-card">
-
-            <span class="download-tool-icon">
-              ↯
-            </span>
-
-            <div>
-
-              <span class="download-tool-label">
-                VELOCIDAD
-              </span>
-
-              <strong
-                id="download-tool-speed"
-              >
-                —
-              </strong>
-
-            </div>
-
-          </div>
-
-
-          <div class="download-tool-card">
-
-            <span class="download-tool-icon">
-              ✓
-            </span>
-
-            <div>
-
-              <span class="download-tool-label">
-                ESTADO
-              </span>
-
-              <strong
-                id="download-tool-status"
-              >
-                Listo
-              </strong>
-
-            </div>
-
-          </div>
-
-
-          <div class="download-tip">
-
-            <span class="download-tip-icon">
-              ✦
-            </span>
-
-            <div>
-
-              <strong>
-                Consejo
-              </strong>
-
-              <p>
-                Puedes seguir buscando otra canción después de terminar esta descarga.
-              </p>
-
-            </div>
-
-          </div>
-
-        </aside>
+        </form>
+
+        <p
+          id="search-error"
+          class="error"
+          role="alert"
+          hidden
+        ></p>
 
       </section>
 
+
+
+      <!-- =========================================
+           PREVIEW
+           ========================================= -->
+
+      <section
+        id="preview"
+        class="preview"
+        hidden
+      >
+
+        <!-- PORTADA -->
+
+        <div class="cover-stage">
+
+          <div class="cover-frame">
+
+            <img
+              id="preview-thumb"
+              class="cover-art"
+              src=""
+              alt=""
+            >
+
+          </div>
+
+          <div
+            class="cover-glow"
+            aria-hidden="true"
+          ></div>
+
+        </div>
+
+
+
+        <!-- INFORMACIÓN DE LA CANCIÓN -->
+
+        <div class="track-panel">
+
+          <h2
+            id="preview-title"
+            class="track-title"
+          ></h2>
+
+          <p
+            id="preview-artist"
+            class="track-artist"
+          ></p>
+
+
+          <div class="track-stats">
+
+            <span class="stat">
+
+              <span class="stat-label">
+                Duración
+              </span>
+
+              <span
+                id="preview-duration"
+                class="stat-value"
+              >
+                —
+              </span>
+
+            </span>
+
+
+            <span class="stat">
+
+              <span class="stat-label">
+                Formato
+              </span>
+
+              <span
+                id="preview-format-label"
+                class="stat-value"
+              >
+                MP3
+              </span>
+
+            </span>
+
+          </div>
+
+
+
+          <!-- FORMATOS -->
+
+          <div
+            class="format-picker"
+            role="radiogroup"
+            aria-label="Formato de audio"
+          >
+
+            <label class="chip">
+
+              <input
+                type="radio"
+                name="format"
+                value="mp3"
+                checked
+              >
+
+              <span>MP3</span>
+
+            </label>
+
+
+            <label class="chip">
+
+              <input
+                type="radio"
+                name="format"
+                value="m4a"
+              >
+
+              <span>M4A</span>
+
+            </label>
+
+
+            <label class="chip">
+
+              <input
+                type="radio"
+                name="format"
+                value="opus"
+              >
+
+              <span>OPUS</span>
+
+            </label>
+
+
+            <label class="chip">
+
+              <input
+                type="radio"
+                name="format"
+                value="wav"
+              >
+
+              <span>WAV</span>
+
+            </label>
+
+          </div>
+
+
+          <p
+            id="format-note"
+            class="format-note"
+            hidden
+          >
+            WAV no incrusta portada; los demás formatos sí.
+          </p>
+
+
+
+          <!-- BOTÓN DESCARGAR -->
+
+          <button
+            type="button"
+            id="download-btn"
+            class="btn btn-download"
+          >
+
+            <span
+              class="eq"
+              aria-hidden="true"
+            >
+              <i></i>
+              <i></i>
+              <i></i>
+              <i></i>
+            </span>
+
+            <span class="download-btn-label">
+              Descargar
+            </span>
+
+          </button>
+
+
+          <p
+            id="download-status"
+            class="status"
+            role="status"
+            hidden
+          ></p>
+
+        </div>
+
+
+
+        <!-- =========================================
+             REPRODUCTOR
+             ========================================= -->
+
+        <div
+          class="player-panel"
+          aria-label="Reproductor"
+        >
+
+          <div
+            id="yt-player"
+            class="yt-player"
+          ></div>
+
+
+          <button
+            type="button"
+            id="play-btn"
+            class="play-btn"
+            aria-label="Reproducir"
+          >
+
+            <svg
+              id="play-icon"
+              class="play-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                d="M8 5.5v13l11-6.5-11-6.5z"
+                fill="currentColor"
+              ></path>
+            </svg>
+
+
+            <svg
+              id="pause-icon"
+              class="pause-icon"
+              viewBox="0 0 24 24"
+              hidden
+              aria-hidden="true"
+            >
+              <path
+                d="M7 5h4v14H7V5zm6 0h4v14h-4V5z"
+                fill="currentColor"
+              ></path>
+            </svg>
+
+          </button>
+
+
+          <div class="player-main">
+
+            <div class="player-meta">
+
+              <span class="player-label">
+                Escuchar ahora
+              </span>
+
+              <span
+                id="player-now"
+                class="player-now"
+              >
+                Listo para reproducir
+              </span>
+
+            </div>
+
+
+            <div class="seek-wrap">
+
+              <input
+                id="seek-bar"
+                class="seek-bar"
+                type="range"
+                min="0"
+                max="100"
+                value="0"
+                step="0.1"
+                aria-label="Progreso"
+              >
+
+              <div class="player-times">
+
+                <span id="time-current">
+                  0:00
+                </span>
+
+                <span id="time-total">
+                  0:00
+                </span>
+
+              </div>
+
+            </div>
+
+          </div>
+
+
+          <p
+            id="player-status"
+            class="player-status"
+            role="status"
+            hidden
+          ></p>
+
+        </div>
+
+
+        <!-- =========================================
+             PROGRESO DE DESCARGA
+             ESTÁTICO
+             ========================================= -->
+
+        <div
+          id="download-overlay"
+          class="download-overlay"
+          hidden
+        >
+
+          <div
+            class="download-modal"
+            role="status"
+            aria-live="polite"
+          >
+
+            <div class="download-modal-info">
+
+              <div class="download-modal-label">
+                DESCARGANDO
+              </div>
+
+              <h3 id="download-modal-title">
+                Preparando canción...
+              </h3>
+
+
+              <div class="download-progress-row">
+
+                <span id="download-percent">
+                  0%
+                </span>
+
+                <span id="download-size">
+                  Preparando...
+                </span>
+
+              </div>
+
+
+              <div class="download-progress-track">
+
+                <div
+                  id="download-progress-bar"
+                  class="download-progress-bar"
+                ></div>
+
+              </div>
+
+
+              <div class="download-details">
+
+                <span id="download-speed">
+                  ⚡ Preparando
+                </span>
+
+                <span id="download-eta">
+                  ⏱ Calculando
+                </span>
+
+              </div>
+
+            </div>
+
+
+            <button
+              type="button"
+              id="cancel-download-btn"
+              class="cancel-download-btn"
+              aria-label="Cancelar descarga"
+            >
+              ×
+            </button>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+
+      <footer class="footer">
+
+        <p>
+          API local ·
+          <a href="/docs">
+            Documentación
+          </a>
+        </p>
+
+      </footer>
+
     </section>
 
 
-    <!-- PIE -->
-    <footer class="footer">
 
-      <p>
-        API local ·
-        <a href="/docs">
-          Documentación
-        </a>
-      </p>
+    <!-- =========================================
+         DERECHA - INFORMACIÓN
+         ========================================= -->
 
-    </footer>
+    <aside class="info-panel">
+
+      <div class="side-header">
+
+        <div class="side-icon">
+          ⚡
+        </div>
+
+        <div>
+
+          <h2>
+            Tu biblioteca
+          </h2>
+
+          <span>
+            Esta sesión
+          </span>
+
+        </div>
+
+      </div>
+
+
+      <div class="library-card">
+
+        <span class="library-label">
+          CANCIONES
+        </span>
+
+        <strong id="download-count">
+          0
+        </strong>
+
+        <small>
+          descargadas
+        </small>
+
+      </div>
+
+
+      <div class="library-card">
+
+        <span class="library-label">
+          FORMATO
+        </span>
+
+        <strong id="current-format">
+          MP3
+        </strong>
+
+        <small>
+          seleccionado
+        </small>
+
+      </div>
+
+
+      <div class="library-tip">
+
+        <div class="tip-icon">
+          ♪
+        </div>
+
+        <div>
+
+          <strong>
+            Consejo
+          </strong>
+
+          <p>
+            Puedes descargar varias canciones.
+            Cada una aparecerá automáticamente
+            en tu lista de descargas.
+          </p>
+
+        </div>
+
+      </div>
+
+
+      <div class="library-status">
+
+        <span class="status-dot"></span>
+
+        <span>
+          Sonora listo
+        </span>
+
+      </div>
+
+    </aside>
 
   </main>
 
