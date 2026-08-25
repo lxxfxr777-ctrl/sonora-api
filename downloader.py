@@ -38,11 +38,19 @@ def _get_cookies_file() -> str | None:
     source_path: Path | None = None
 
     env_path = os.environ.get("YTDLP_COOKIES_FILE")
+
     if env_path and Path(env_path).is_file():
         source_path = Path(env_path)
 
     if source_path is None:
+        local_path = Path(__file__).resolve().parent / "cookies.txt"
+
+        if local_path.is_file():
+            source_path = local_path
+
+    if source_path is None:
         local_path = Path(__file__).resolve().parent.parent / "cookies.txt"
+
         if local_path.is_file():
             source_path = local_path
 
@@ -50,7 +58,10 @@ def _get_cookies_file() -> str | None:
         return None
 
     try:
-        shutil.copyfile(source_path, _WRITABLE_COOKIES_PATH)
+        shutil.copyfile(
+            source_path,
+            _WRITABLE_COOKIES_PATH,
+        )
     except OSError:
         return None
 
@@ -61,15 +72,20 @@ def _ensure_ffmpeg_available() -> None:
     if shutil.which("ffmpeg") is not None:
         return
 
-    for brew_bin in ("/opt/homebrew/bin", "/usr/local/bin"):
+    for brew_bin in (
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+    ):
         ffmpeg_path = Path(brew_bin) / "ffmpeg"
+
         if ffmpeg_path.exists():
-            os.environ["PATH"] = f"{brew_bin}:{os.environ.get('PATH', '')}"
+            os.environ["PATH"] = (
+                f"{brew_bin}:{os.environ.get('PATH', '')}"
+            )
             return
 
     raise DownloadFailedError(
-        "ffmpeg no está instalado. En Windows: winget install Gyan.FFmpeg "
-        "(o choco install ffmpeg). En macOS: brew install ffmpeg."
+        "ffmpeg no está instalado."
     )
 
 
@@ -77,7 +93,9 @@ def validate_youtube_url(url: str) -> str:
     url = url.strip()
 
     if not url:
-        raise InvalidYouTubeURLError("La URL no puede estar vacía.")
+        raise InvalidYouTubeURLError(
+            "La URL no puede estar vacía."
+        )
 
     if not YOUTUBE_URL_PATTERN.match(url):
         raise InvalidYouTubeURLError(
@@ -87,19 +105,51 @@ def validate_youtube_url(url: str) -> str:
     return url
 
 
-def get_video_info(url: str) -> dict[str, Any]:
-    validate_youtube_url(url)
+def _youtube_extractor_args() -> dict[str, Any]:
+    """
+    No forzamos únicamente el cliente web.
 
+    YouTube está aplicando actualmente diferentes requisitos
+    de reproducción/descarga según el cliente. Dejamos que
+    yt-dlp seleccione los clientes compatibles.
+    """
+
+    return {
+        "youtube": {
+            "player_client": [
+                "tv",
+                "web_embedded",
+                "ios",
+                "web",
+            ],
+        }
+    }
+
+
+def _base_options() -> dict[str, Any]:
     options: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
-        "skip_download": True,
-        "format": "bestaudio/best/251/140",
-        "extractor_args": {
-    "youtube": {
-        "player_client": ["web"]
-    }
-},
+
+        # Dejamos que yt-dlp seleccione el mejor audio disponible.
+        "format": (
+            "bestaudio/"
+            "best"
+        ),
+
+        "extractor_args": _youtube_extractor_args(),
+
+        # Reintentos para errores temporales.
+        "retries": 3,
+        "fragment_retries": 3,
+
+        # Permite que yt-dlp cambie de formato/cliente
+        # si alguno no está disponible.
+        "ignoreerrors": False,
+
+        # Usar IPv4 suele ser más estable en algunos
+        # entornos cloud.
+        "force_ipv4": True,
     }
 
     cookies_file = _get_cookies_file()
@@ -107,19 +157,37 @@ def get_video_info(url: str) -> dict[str, Any]:
     if cookies_file:
         options["cookiefile"] = cookies_file
 
+    return options
+
+
+def get_video_info(url: str) -> dict[str, Any]:
+    validate_youtube_url(url)
+
+    options = _base_options()
+
+    options["skip_download"] = True
+
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(
+                url,
+                download=False,
+            )
 
     except DownloadError as exc:
-        raise DownloadFailedError(str(exc)) from exc
+        raise DownloadFailedError(
+            str(exc)
+        ) from exc
 
     if info is None:
         raise DownloadFailedError(
             "No se pudo obtener información del video."
         )
 
-    from palette import attach_palette, best_thumbnail_url
+    from palette import (
+        attach_palette,
+        best_thumbnail_url,
+    )
 
     return attach_palette(
         {
@@ -128,7 +196,10 @@ def get_video_info(url: str) -> dict[str, Any]:
             "duration": info.get("duration"),
             "uploader": info.get("uploader"),
             "thumbnail": best_thumbnail_url(info),
-            "webpage_url": info.get("webpage_url", url),
+            "webpage_url": info.get(
+                "webpage_url",
+                url,
+            ),
         }
     )
 
@@ -140,6 +211,20 @@ def _build_ydl_options(
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
 
+    options = _base_options()
+
+    options.update(
+        {
+            "outtmpl": output_template,
+
+            "progress_hooks": (
+                [progress_callback]
+                if progress_callback
+                else []
+            ),
+        }
+    )
+
     postprocessors: list[dict[str, Any]] = [
         {
             "key": "FFmpegExtractAudio",
@@ -148,29 +233,8 @@ def _build_ydl_options(
         }
     ]
 
-    options: dict[str, Any] = {
-        "format": "bestaudio/best/251/140",
-        "outtmpl": output_template,
-        "quiet": True,
-        "no_warnings": True,
-    "extractor_args": {
-    "youtube": {
-        "player_client": ["web"]
-    }
-},
-        "progress_hooks": (
-            [progress_callback]
-            if progress_callback
-            else []
-        ),
-    }
-
-    cookies_file = _get_cookies_file()
-
-    if cookies_file:
-        options["cookiefile"] = cookies_file
-
     if embed_thumbnail:
+
         options["writethumbnail"] = True
 
         postprocessors.append(
@@ -208,7 +272,10 @@ def _run_yt_dlp(
     )
 
     with yt_dlp.YoutubeDL(options) as ydl:
-        return ydl.extract_info(url, download=True)
+        return ydl.extract_info(
+            url,
+            download=True,
+        )
 
 
 def download_audio(
@@ -224,15 +291,20 @@ def download_audio(
     if audio_format not in SUPPORTED_FORMATS:
         raise ValueError(
             f"Formato no soportado: {audio_format}. "
-            f"Usa uno de: {', '.join(sorted(SUPPORTED_FORMATS))}"
+            f"Usa uno de: "
+            f"{', '.join(sorted(SUPPORTED_FORMATS))}"
         )
 
     _ensure_ffmpeg_available()
 
-    embed_thumbnail = audio_format in THUMBNAIL_EMBED_FORMATS
+    embed_thumbnail = (
+        audio_format in THUMBNAIL_EMBED_FORMATS
+    )
 
     temp_dir = Path(
-        tempfile.mkdtemp(prefix="yt-audio-")
+        tempfile.mkdtemp(
+            prefix="yt-audio-"
+        )
     )
 
     output_template = str(
@@ -251,6 +323,8 @@ def download_audio(
 
     except DownloadError as exc:
 
+        # Si falla la incorporación de portada,
+        # intentamos nuevamente sin portada.
         if embed_thumbnail:
 
             shutil.rmtree(
@@ -311,7 +385,10 @@ def download_audio(
             "No se pudo descargar el audio."
         )
 
-    title = info.get("title") or "audio"
+    title = (
+        info.get("title")
+        or "audio"
+    )
 
     downloaded_files = list(
         temp_dir.glob(
@@ -331,4 +408,7 @@ def download_audio(
             "el archivo de audio."
         )
 
-    return downloaded_files[0], title
+    return (
+        downloaded_files[0],
+        title,
+    )
