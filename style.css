@@ -884,23 +884,34 @@ body {
    ========================================================= */
 
 .download-overlay {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
+  position: relative;
+  inset: auto;
 
-  transform: translateX(-50%);
-
-  z-index: 9999;
-
-  width: min(720px, calc(100vw - 32px));
-
-  display: block;
+  width: 100%;
+  padding: 0;
+  margin-top: 0;
 
   background: transparent;
 
-  pointer-events: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 
-  animation: download-panel-in 0.28s ease;
+  animation: download-static-in 0.22s ease;
+
+  /*
+   * Movimiento suave con el cursor
+   */
+  transform:
+    translate3d(
+      var(--download-move-x, 0px),
+      var(--download-move-y, 0px),
+      0
+    );
+
+  transition:
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  
+  will-change: transform;
 }
 
 /*
