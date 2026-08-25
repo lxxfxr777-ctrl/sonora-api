@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 import base64
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Body
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Body, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -50,6 +50,30 @@ class DownloadRequest(BaseModel):
         default="mp3",
         description="Formato de audio: mp3, m4a, opus, wav",
     )
+
+
+def _is_api_key_valid(provided: str | None) -> bool:
+    """Validate provided API key against env var. Accepts:
+    - Authorization: Bearer <key>
+    - X-API-Key header value
+
+    If YTDLP_COOKIES_API_KEY is not set, validation passes (no auth enforced).
+    """
+    required = os.environ.get("YTDLP_COOKIES_API_KEY")
+
+    if not required:
+        return True
+
+    if not provided:
+        return False
+
+    # If header is of form 'Bearer <key>'
+    if provided.lower().startswith("bearer "):
+        key = provided.split(None, 1)[1].strip()
+        return key == required
+
+    # Otherwise compare raw value
+    return provided == required
 
 
 @app.get("/api")
@@ -131,11 +155,18 @@ COOKIES_DEST = Path("/app/cookies.txt")
 
 
 @app.post("/api/cookies/upload")
-async def upload_cookies(file: UploadFile = File(...)) -> dict:
+async def upload_cookies(file: UploadFile = File(...), authorization: str | None = Header(None), x_api_key: str | None = Header(None)) -> dict:
     """Upload a cookies.txt file (multipart/form-data, field: file).
 
     The file is written to /app/cookies.txt and will be used by yt-dlp.
+
+    Authorization: If YTDLP_COOKIES_API_KEY is set, provide header 'Authorization: Bearer <key>' or 'X-API-Key: <key>'.
     """
+    # Check API key
+    provided = authorization or x_api_key
+    if not _is_api_key_valid(provided):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
     try:
         data = await file.read()
         COOKIES_DEST.parent.mkdir(parents=True, exist_ok=True)
@@ -153,11 +184,15 @@ async def upload_cookies(file: UploadFile = File(...)) -> dict:
 
 
 @app.post("/api/cookies/b64")
-def upload_cookies_b64(body: dict = Body(...)) -> dict:
+def upload_cookies_b64(body: dict = Body(...), authorization: str | None = Header(None), x_api_key: str | None = Header(None)) -> dict:
     """Upload cookies via base64-encoded content in JSON: {"cookies_b64": "..."}.
 
-    Useful for CI or secret managers.
+    Useful for CI or secret managers. Requires API key if configured.
     """
+    provided = authorization or x_api_key
+    if not _is_api_key_valid(provided):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
     b64 = body.get("cookies_b64")
 
     if not b64:
@@ -190,11 +225,15 @@ def upload_cookies_b64(body: dict = Body(...)) -> dict:
 
 
 @app.post("/api/cookies/raw")
-def upload_cookies_raw(body: dict = Body(...)) -> dict:
+def upload_cookies_raw(body: dict = Body(...), authorization: str | None = Header(None), x_api_key: str | None = Header(None)) -> dict:
     """Upload raw cookies file content via JSON: {"cookies": "<text>"}.
 
     Less secure (exposes cookies in logs) but available for convenience.
     """
+    provided = authorization or x_api_key
+    if not _is_api_key_valid(provided):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
     raw = body.get("cookies")
 
     if raw is None:
@@ -219,12 +258,16 @@ def upload_cookies_raw(body: dict = Body(...)) -> dict:
 
 
 @app.get("/api/cookies/status")
-def cookies_status() -> dict:
+def cookies_status(authorization: str | None = Header(None), x_api_key: str | None = Header(None)) -> dict:
     """Return if cookies are available and where they're read from.
 
-    This uses the downloader._get_cookie_file() helper to show which file (if any)
-    yt-dlp will use according to current environment and filesystem.
+    Uses downloader._get_cookie_file() helper to show which path (if any) will be used.
+    This endpoint requires API key if YTDLP_COOKIES_API_KEY is set.
     """
+    provided = authorization or x_api_key
+    if not _is_api_key_valid(provided):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
     try:
         # Import here to avoid circular import at module load time
         from downloader import _get_cookie_file
