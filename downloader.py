@@ -199,38 +199,44 @@ def _base_ydl_options() -> dict[str, Any]:
             "best"
         ),
 
-        "retries": 10,
+        "retries": 15,
 
-        "fragment_retries": 10,
+        "fragment_retries": 15,
 
         "force_ipv4": True,
 
-        "socket_timeout": 30,
+        "socket_timeout": 60,
 
-        "connect_timeout": 30,
+        "connect_timeout": 60,
 
-        "read_timeout": 30,
+        "read_timeout": 60,
 
+        "http_chunk_size": 10485760,
+
+        # Usar los runtimes más recientes para JS
         "js_runtimes": {
             "deno": {},
+            "node": {},
         },
 
+        # Permitir componentes remotos para actualizar el extractor
         "remote_components": {
             "ejs:npm",
         },
 
+        # Headers realistas y completos
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 "
                 "(Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
-                "Chrome/120.0.0.0 "
+                "Chrome/130.0.0.0 "
                 "Safari/537.36"
             ),
 
             "Accept-Language": (
-                "en-US,en;q=0.9"
+                "en-US,en;q=0.9,es;q=0.8"
             ),
 
             "Accept": (
@@ -239,7 +245,7 @@ def _base_ydl_options() -> dict[str, Any]:
             ),
 
             "Accept-Encoding": (
-                "gzip, deflate"
+                "gzip, deflate, br"
             ),
 
             "DNT": "1",
@@ -247,14 +253,23 @@ def _base_ydl_options() -> dict[str, Any]:
             "Connection": "keep-alive",
 
             "Upgrade-Insecure-Requests": "1",
+
+            "Sec-Fetch-Dest": "document",
+
+            "Sec-Fetch-Mode": "navigate",
+
+            "Sec-Fetch-Site": "none",
         },
 
-        # For YouTube extractor: prefer the web player and allow the JS player
-        # (do not skip JS). Some videos require the JS player to be parsed.
+        # Configuración agresiva del extractor de YouTube
         "extractor_args": {
             "youtube": {
-                "player_client": ["web"],
+                "player_client": ["web", "android"],
+                "player_skip": [],
                 "skip": ["hls", "dash"],
+                "lang": ["es", "en"],
+                "youtube_include_dash_manifest": False,
+                "youtube_include_hls_manifest": False,
             }
         },
 
@@ -262,9 +277,25 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "no_check_certificate": True,
 
+        # Bypass geográfico automático
         "geo_bypass": True,
 
         "geo_bypass_country": "US",
+
+        # No verificar HTTPS (en caso de problemas de certificado)
+        "no_check_certificate": True,
+
+        # Permitir más errores antes de fallar
+        "skip_unavailable_fragments": True,
+
+        # Usar fragmentos de fallback
+        "fragment_retries": 15,
+
+        # No usar mpv u otros reproductores
+        "prefer_ffmpeg": True,
+
+        # Establecer máxima calidad
+        "nocheckcertificate": True,
     }
 
     # Proxy support (useful if your server IP is geo-blocked)
@@ -495,22 +526,36 @@ def download_audio(
             in message
             or "LOGIN_REQUIRED"
             in message
+            or "Please sign in"
+            in message
         ):
 
             raise DownloadFailedError(
-                "YouTube está bloqueando esta solicitud. Las cookies de YouTube no son válidas o la sesión requiere autenticación. Proporciona cookies mediante YTDLP_COOKIES_B64/YTDLP_COOKIES or YTDLP_COOKIES_FILE o monta /app/cookies.txt."
+                "YouTube está bloqueando esta solicitud. Las cookies de YouTube no son válidas o la sesión requiere autenticación. Proporciona cookies mediante YTDLP_COOKIES_B64/YTDLP_COOKIES_FILE/YTDLP_COOKIES."
             ) from exc
 
         if "HTTP Error 403" in message:
 
             raise DownloadFailedError(
-                "YouTube rechazó la descarga con HTTP 403. Intenta más tarde o verifica tu conexión."
+                "YouTube rechazó la descarga con HTTP 403. Intenta más tarde, verifica tu conexión o proporciona cookies válidas."
+            ) from exc
+
+        if "HTTP Error 429" in message:
+
+            raise DownloadFailedError(
+                "Demasiadas solicitudes (429). YouTube bloqueó temporalmente la IP. Intenta de nuevo en unos minutos o usa un proxy."
             ) from exc
 
         if "Requested format is not available" in message:
 
             raise DownloadFailedError(
                 "El formato de audio no está disponible para este video. Es posible que sea un livestream, video privado o esté restringido geográficamente."
+            ) from exc
+
+        if "Unable to extract" in message or "ERROR" in message:
+
+            raise DownloadFailedError(
+                f"No se pudo extraer la información del video. Verifica el enlace o intenta más tarde. Detalles: {message[:100]}"
             ) from exc
 
         raise DownloadFailedError(
