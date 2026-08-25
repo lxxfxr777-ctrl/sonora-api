@@ -6,6 +6,8 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
+import base64
+import uuid
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -97,6 +99,17 @@ def _ensure_ffmpeg_available() -> None:
 
 
 def _get_cookie_file() -> str | None:
+    """
+    Look for cookies to pass to yt-dlp. Order of precedence:
+    1. YTDLP_COOKIES_FILE environment variable (path to a cookies.txt file)
+    2. YTDLP_COOKIES_B64 environment variable (base64-encoded cookies file contents)
+    3. YTDLP_COOKIES environment variable (raw cookies file contents)
+    4. /app/cookies.txt (useful in Docker)
+    5. cookies.txt alongside this module
+
+    If cookies are supplied via environment (B64 or raw), this function will
+    write them to a temporary file and return its path.
+    """
 
     env_path = os.environ.get(
         "YTDLP_COOKIES_FILE"
@@ -108,6 +121,35 @@ def _get_cookie_file() -> str | None:
 
         if path.is_file():
             return str(path)
+
+    # Support base64-encoded cookies in an env var (useful for CI / Docker secrets)
+    b64 = os.environ.get("YTDLP_COOKIES_B64")
+
+    if b64:
+        try:
+            data = base64.b64decode(b64)
+        except Exception:
+            # If decoding fails, fall through and try other sources
+            data = None
+
+        if data:
+            tmp = Path(tempfile.gettempdir()) / f"ytdlp_cookies_{uuid.uuid4().hex}.txt"
+            try:
+                tmp.write_bytes(data)
+                return str(tmp)
+            except Exception:
+                pass
+
+    # Support raw cookies content in an env var
+    raw = os.environ.get("YTDLP_COOKIES")
+
+    if raw:
+        tmp = Path(tempfile.gettempdir()) / f"ytdlp_cookies_{uuid.uuid4().hex}.txt"
+        try:
+            tmp.write_text(raw)
+            return str(tmp)
+        except Exception:
+            pass
 
     default_path = Path(
         "/app/cookies.txt"
@@ -441,7 +483,14 @@ def download_audio(
                 "esta solicitud. "
                 "Las cookies de YouTube "
                 "no son válidas o la sesión "
-                "requiere autenticación."
+                "requiere autenticación. "
+                "\n\nSolución: proporciona un archivo de cookies de YouTube. "
+                "Puedes hacerlo de varias maneras:\n"
+                " - Coloca el archivo cookies.txt en /app/cookies.txt (Docker)\n"
+                " - Establece la variable de entorno YTDLP_COOKIES_FILE con la ruta al archivo\n"
+                " - Establece la variable de entorno YTDLP_COOKIES con el contenido del archivo cookies.txt\n"
+                " - Establece YTDLP_COOKIES_B64 con el contenido base64 del archivo cookies.txt\n\n"
+                "Consulta: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"
             ) from exc
 
         if "HTTP Error 403" in message:
