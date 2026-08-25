@@ -25,6 +25,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# If cookies.txt was added to the project root, ensure it's secure inside the image
+RUN if [ -f /app/cookies.txt ]; then chmod 600 /app/cookies.txt || true; fi
+
 EXPOSE 10000
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
