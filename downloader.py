@@ -127,16 +127,20 @@ def _youtube_extractor_args() -> dict[str, Any]:
 
 
 def _base_options() -> dict[str, Any]:
-    options: dict[str, Any] = {
-        "quiet": True,
-        "no_warnings": True,
+   options: dict[str, Any] = {
+    "quiet": False,
+    "no_warnings": False,
+    "verbose": True,
 
-        # Dejamos que yt-dlp seleccione el mejor audio disponible.
-        "format": (
-            "bestaudio/"
-            "best"
-        ),
+    "format": "bestaudio/best",
 
+    "retries": 3,
+    "fragment_retries": 3,
+
+    "ignoreerrors": False,
+
+    "force_ipv4": True,
+}
         "extractor_args": _youtube_extractor_args(),
 
         # Reintentos para errores temporales.
