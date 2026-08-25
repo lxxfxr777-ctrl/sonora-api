@@ -127,7 +127,44 @@
       <p>API local · <a href="/docs">Documentación</a></p>
     </footer>
   </main>
+<!-- Ventana de progreso de descarga -->
+<div id="download-overlay" class="download-overlay" hidden>
+  <div class="download-modal" role="dialog" aria-modal="true" aria-labelledby="download-modal-title">
 
+    <div class="download-modal-top">
+      <img id="download-modal-cover" class="download-modal-cover" src="" alt="Portada">
+
+      <div class="download-modal-info">
+        <div class="download-modal-label">DESCARGANDO</div>
+        <h3 id="download-modal-title">Preparando canción...</h3>
+
+        <div class="download-progress-row">
+          <span id="download-percent">0%</span>
+          <span id="download-size">Preparando...</span>
+        </div>
+
+        <div class="download-progress-track">
+          <div id="download-progress-bar" class="download-progress-bar"></div>
+        </div>
+
+        <div class="download-details">
+          <span id="download-speed">⚡ —</span>
+          <span id="download-eta">⏱ —</span>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        id="cancel-download-btn"
+        class="cancel-download-btn"
+        aria-label="Cancelar descarga"
+      >
+        ×
+      </button>
+    </div>
+
+  </div>
+</div>
   <script src="/app.js"></script>
 </body>
 </html>
