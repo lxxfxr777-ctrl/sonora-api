@@ -137,7 +137,7 @@ def get_video_info(url: str) -> dict[str, Any]:
     if info is None:
         raise DownloadFailedError("No se pudo obtener información del video.")
 
-    from app.palette import attach_palette, best_thumbnail_url
+    from palette import attach_palette, best_thumbnail_url
 
     return attach_palette(
         {
