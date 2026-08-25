@@ -739,9 +739,10 @@
       downloadBtnLabel.textContent = 'Descargar';
     }
   });
-  
-  cancelDownloadBtn.addEventListener('click', () => {
+    cancelDownloadBtn.addEventListener('click', () => {
     if (downloadController) {
       downloadController.abort();
     }
   });
+
+})();
