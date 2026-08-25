@@ -31,6 +31,13 @@ class DownloadFailedError(RuntimeError):
     pass
 
 
+# Ruta de trabajo (con permiso de escritura) donde se guarda la copia
+# utilizable del archivo de cookies. Los "Secret Files" de Render se montan
+# como solo-lectura, y yt-dlp necesita poder reescribir el archivo de
+# cookies tras cada uso, así que no se le puede pasar esa ruta directamente.
+_WRITABLE_COOKIES_PATH = Path(tempfile.gettempdir()) / "sonora_cookies.txt"
+
+
 def _get_cookies_file() -> str | None:
     """
     Busca un archivo de cookies de YouTube para evitar el error
@@ -40,16 +47,38 @@ def _get_cookies_file() -> str | None:
     Prioridad:
     1. Variable de entorno YTDLP_COOKIES_FILE (ruta a un Secret File en Render)
     2. Un archivo cookies.txt en la raíz del proyecto (útil en local)
+
+    En ambos casos, la fuente se copia a una ruta temporal con permiso de
+    escritura (p. ej. /tmp) antes de devolverla, porque yt-dlp actualiza el
+    archivo de cookies tras usarlo y los Secret Files de Render son de solo
+    lectura (intentar escribir ahí directamente lanza
+    "OSError: [Errno 30] Read-only file system").
     """
+    source_path: Path | None = None
+
     env_path = os.environ.get("YTDLP_COOKIES_FILE")
     if env_path and Path(env_path).is_file():
-        return env_path
+        source_path = Path(env_path)
 
-    local_path = Path(__file__).resolve().parent.parent / "cookies.txt"
-    if local_path.is_file():
-        return str(local_path)
+    if source_path is None:
+        local_path = Path(__file__).resolve().parent.parent / "cookies.txt"
+        if local_path.is_file():
+            source_path = local_path
 
-    return None
+    if source_path is None:
+        return None
+
+    try:
+        # Se copia cada vez para reflejar cambios si el secreto se actualiza
+        # en Render (por ejemplo, cookies renovadas), y porque la copia es
+        # muy rápida (el archivo pesa pocos KB).
+        shutil.copyfile(source_path, _WRITABLE_COOKIES_PATH)
+    except OSError:
+        # Si por algún motivo no se puede copiar, se sigue sin cookies en
+        # vez de tumbar el servidor.
+        return None
+
+    return str(_WRITABLE_COOKIES_PATH)
 
 
 def _ensure_ffmpeg_available() -> None:
