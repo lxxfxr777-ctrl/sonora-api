@@ -31,6 +31,27 @@ class DownloadFailedError(RuntimeError):
     pass
 
 
+def _get_cookies_file() -> str | None:
+    """
+    Busca un archivo de cookies de YouTube para evitar el error
+    "Sign in to confirm you're not a bot" que YouTube lanza cuando detecta
+    peticiones desde IPs de datacenter (como las de Render).
+
+    Prioridad:
+    1. Variable de entorno YTDLP_COOKIES_FILE (ruta a un Secret File en Render)
+    2. Un archivo cookies.txt en la raíz del proyecto (útil en local)
+    """
+    env_path = os.environ.get("YTDLP_COOKIES_FILE")
+    if env_path and Path(env_path).is_file():
+        return env_path
+
+    local_path = Path(__file__).resolve().parent.parent / "cookies.txt"
+    if local_path.is_file():
+        return str(local_path)
+
+    return None
+
+
 def _ensure_ffmpeg_available() -> None:
     if shutil.which("ffmpeg") is not None:
         return
@@ -65,6 +86,10 @@ def get_video_info(url: str) -> dict[str, Any]:
         "skip_download": True,
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
+
+    cookies_file = _get_cookies_file()
+    if cookies_file:
+        options["cookiefile"] = cookies_file
 
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
@@ -107,6 +132,10 @@ def _build_ydl_options(
         "no_warnings": True,
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
+
+    cookies_file = _get_cookies_file()
+    if cookies_file:
+        options["cookiefile"] = cookies_file
 
     if embed_thumbnail:
         # Descarga la miniatura junto con el audio y, tras la conversión,
