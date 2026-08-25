@@ -17,6 +17,7 @@
   const downloadBtn = document.getElementById('download-btn');
   const downloadBtnLabel = downloadBtn.querySelector('.download-btn-label');
   const downloadStatus = document.getElementById('download-status');
+
   const coverStage = document.querySelector('.cover-stage');
   const playBtn = document.getElementById('play-btn');
   const playIcon = document.getElementById('play-icon');
@@ -27,9 +28,11 @@
   const playerNow = document.getElementById('player-now');
   const playerStatus = document.getElementById('player-status');
 
-  // Ventana de progreso de descarga
+  /* =========================================================
+     VENTANA DE DESCARGA
+     ========================================================= */
+
   const downloadOverlay = document.getElementById('download-overlay');
-  const downloadModalCover = document.getElementById('download-modal-cover');
   const downloadModalTitle = document.getElementById('download-modal-title');
   const downloadPercent = document.getElementById('download-percent');
   const downloadSize = document.getElementById('download-size');
@@ -40,8 +43,15 @@
 
   let downloadController = null;
 
+  /*
+   * Lista local de canciones descargadas durante
+   * esta sesión de la página.
+   */
+  let downloadedSongs = [];
+
   let currentUrl = '';
   let currentVideoId = '';
+
   let ytPlayer = null;
   let ytReady = false;
   let ytApiPromise = null;
@@ -94,14 +104,18 @@
 
     const total = Math.round(Number(seconds));
 
-    if (!Number.isFinite(total) || total < 0) return '—';
+    if (!Number.isFinite(total) || total < 0) {
+      return '—';
+    }
 
     const hours = Math.floor(total / 3600);
     const minutes = Math.floor((total % 3600) / 60);
     const secs = total % 60;
 
     if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs
+      return `${hours}:${minutes
+        .toString()
+        .padStart(2, '0')}:${secs
         .toString()
         .padStart(2, '0')}`;
     }
@@ -116,7 +130,8 @@
   function rgbToHex(r, g, b) {
     return `#${[r, g, b]
       .map((n) => n.toString(16).padStart(2, '0'))
-      .join('')}`.toUpperCase();
+      .join('')}`
+      .toUpperCase();
   }
 
   function rgbToHsv(r, g, b) {
@@ -131,13 +146,19 @@
     let h = 0;
 
     if (d !== 0) {
-      if (max === r) h = ((g - b) / d) % 6;
-      else if (max === g) h = (b - r) / d + 2;
-      else h = (r - g) / d + 4;
+      if (max === r) {
+        h = ((g - b) / d) % 6;
+      } else if (max === g) {
+        h = (b - r) / d + 2;
+      } else {
+        h = (r - g) / d + 4;
+      }
 
       h /= 6;
 
-      if (h < 0) h += 1;
+      if (h < 0) {
+        h += 1;
+      }
     }
 
     const s = max === 0 ? 0 : d / max;
@@ -148,6 +169,7 @@
   function hsvToRgb(h, s, v) {
     const i = Math.floor(h * 6);
     const f = h * 6 - i;
+
     const p = v * (1 - s);
     const q = v * (1 - f * s);
     const t = v * (1 - (1 - f) * s);
@@ -173,8 +195,17 @@
   function vividize(r, g, b) {
     let [h, s, v] = rgbToHsv(r, g, b);
 
-    s = clamp(Math.max(s, 0.78) * 1.4, 0.82, 1);
-    v = clamp(Math.max(v, 0.82), 0.78, 0.98);
+    s = clamp(
+      Math.max(s, 0.78) * 1.4,
+      0.82,
+      1
+    );
+
+    v = clamp(
+      Math.max(v, 0.82),
+      0.78,
+      0.98
+    );
 
     return hsvToRgb(h, s, v);
   }
@@ -182,6 +213,7 @@
   function paletteFromRgb(r, g, b) {
     const [ar, ag, ab] = vividize(r, g, b);
     const [h] = rgbToHsv(ar, ag, ab);
+
     const [lr, lg, lb] = hsvToRgb(h, 0.82, 0.98);
     const [dr, dg, db] = hsvToRgb(h, 0.95, 0.52);
     const [hr, hg, hb] = hsvToRgb(h, 0.9, 1);
@@ -207,9 +239,10 @@
     canvas.width = 64;
     canvas.height = 64;
 
-    const ctx = canvas.getContext('2d', {
-      willReadFrequently: true,
-    });
+    const ctx = canvas.getContext(
+      '2d',
+      { willReadFrequently: true }
+    );
 
     if (!ctx) return null;
 
@@ -239,15 +272,15 @@
         continue;
       }
 
-      const key =
-        `${r >> 4}_${g >> 4}_${b >> 4}`;
+      const key = `${r >> 4}_${g >> 4}_${b >> 4}`;
 
       const weight =
         (1 + s * 2.6) *
         (0.55 + Math.min(v, 0.9));
 
       const current =
-        buckets.get(key) || {
+        buckets.get(key) ||
+        {
           r,
           g,
           b,
@@ -259,23 +292,25 @@
       buckets.set(key, current);
     }
 
-    const ranked =
-      [...buckets.values()]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 12);
+    const ranked = [
+      ...buckets.values(),
+    ]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12);
 
-    if (!ranked.length) return null;
+    if (!ranked.length) {
+      return null;
+    }
 
     let best = ranked[0];
     let bestVivid = -1;
 
     for (const color of ranked) {
-      const [, s, v] =
-        rgbToHsv(
-          color.r,
-          color.g,
-          color.b
-        );
+      const [, s, v] = rgbToHsv(
+        color.r,
+        color.g,
+        color.b
+      );
 
       const vivid =
         color.score *
@@ -354,9 +389,7 @@
       colors.aurora_3
     );
 
-    document.body.classList.add(
-      'themed'
-    );
+    document.body.classList.add('themed');
 
     document.body.classList.toggle(
       'cover-black',
@@ -429,8 +462,7 @@
       return '—';
     }
 
-    const total =
-      Math.round(seconds);
+    const total = Math.round(seconds);
 
     const minutes =
       Math.floor(total / 60);
@@ -445,39 +477,39 @@
     return `${secs}s`;
   }
 
+  /* =========================================================
+     VENTANA DE DESCARGA
+     ========================================================= */
+
   function openDownloadModal() {
     downloadOverlay.hidden = false;
 
-    document.body.classList.add(
+    /*
+     * Importante:
+     * Ya NO usamos la portada aquí.
+     * Tampoco modificamos el fondo de la página.
+     */
+
+    document.body.classList.remove(
       'download-open'
     );
 
-    downloadModalCover.src =
-      previewThumb.src;
-
     downloadModalTitle.textContent =
-      previewTitle.textContent ||
-      'Descargando canción';
+      `${previewTitle.textContent || 'Canción'}${
+        previewArtist.textContent
+          ? ` — ${previewArtist.textContent}`
+          : ''
+      }`;
 
-    downloadPercent.textContent =
-      '0%';
-
-    downloadSize.textContent =
-      'Preparando...';
-
-    downloadProgressBar.style.width =
-      '0%';
-
-    downloadSpeed.textContent =
-      '⚡ —';
-
-    downloadEta.textContent =
-      '⏱ —';
+    downloadPercent.textContent = '1%';
+    downloadSize.textContent = 'Preparando descarga…';
+    downloadProgressBar.style.width = '1%';
+    downloadSpeed.textContent = '⚡ Calculando…';
+    downloadEta.textContent = '⏱ Calculando…';
   }
 
   function closeDownloadModal() {
     downloadOverlay.hidden = true;
-
     document.body.classList.remove(
       'download-open'
     );
@@ -490,14 +522,29 @@
     speed,
     eta
   ) {
-    const safePercent =
-      Math.min(
-        100,
-        Math.max(
-          0,
-          Number(percent) || 0
-        )
-      );
+    let safePercent =
+      Number(percent);
+
+    if (
+      !Number.isFinite(safePercent)
+    ) {
+      safePercent = 1;
+    }
+
+    /*
+     * Evitamos que visualmente se quede en 0%.
+     */
+    if (
+      safePercent > 0 &&
+      safePercent < 1
+    ) {
+      safePercent = 1;
+    }
+
+    safePercent = Math.min(
+      100,
+      Math.max(0, safePercent)
+    );
 
     downloadPercent.textContent =
       `${safePercent.toFixed(0)}%`;
@@ -507,28 +554,26 @@
 
     if (total > 0) {
       downloadSize.textContent =
-        `${formatBytes(downloaded)} / ${formatBytes(
-          total
-        )}`;
-    } else {
+        `${formatBytes(downloaded)} / ${formatBytes(total)}`;
+    } else if (downloaded > 0) {
       downloadSize.textContent =
         formatBytes(downloaded);
+    } else {
+      downloadSize.textContent =
+        'Preparando descarga…';
     }
 
     downloadSpeed.textContent =
-      `⚡ ${
-        speed
-          ? formatBytes(speed) + '/s'
-          : '—'
-      }`;
+      speed > 0
+        ? `⚡ ${formatBytes(speed)}/s`
+        : '⚡ Calculando…';
 
     downloadEta.textContent =
-      `⏱ ${
-        eta !== null &&
-        eta !== undefined
-          ? formatEta(eta)
-          : '—'
-      }`;
+      eta !== null &&
+      eta !== undefined &&
+      Number.isFinite(eta)
+        ? `⏱ ${formatEta(eta)}`
+        : '⏱ Calculando…';
   }
 
   function setSearchLoading(loading) {
@@ -549,7 +594,6 @@
 
   function clearError() {
     searchError.hidden = true;
-
     searchError.textContent = '';
   }
 
@@ -582,6 +626,117 @@
         updateFormatUI
       )
   );
+
+  /* =========================================================
+     LISTA DE DESCARGAS
+     ========================================================= */
+
+  function addDownloadedSong(
+    title,
+    artist,
+    format
+  ) {
+    downloadedSongs.unshift({
+      title:
+        title || 'Canción',
+      artist:
+        artist || 'Artista desconocido',
+      format:
+        format.toUpperCase(),
+      time:
+        new Date(),
+    });
+
+    /*
+     * Evitamos que la lista crezca
+     * indefinidamente.
+     */
+    if (
+      downloadedSongs.length > 20
+    ) {
+      downloadedSongs =
+        downloadedSongs.slice(0, 20);
+    }
+
+    renderDownloadedSongs();
+  }
+
+  function findDownloadListContainer() {
+    return document.querySelector(
+      '#download-history, .download-history, .download-list'
+    );
+  }
+
+  function renderDownloadedSongs() {
+    const container =
+      findDownloadListContainer();
+
+    /*
+     * Si el HTML todavía no tiene el
+     * contenedor, no hacemos nada.
+     * El resto de la descarga sigue funcionando.
+     */
+    if (!container) {
+      return;
+    }
+
+    container.innerHTML = '';
+
+    if (
+      downloadedSongs.length === 0
+    ) {
+      container.innerHTML = `
+        <div class="download-empty">
+          <span>♪</span>
+          <p>Aquí aparecerán tus canciones descargadas.</p>
+        </div>
+      `;
+
+      return;
+    }
+
+    downloadedSongs.forEach(
+      (song, index) => {
+        const item =
+          document.createElement(
+            'div'
+          );
+
+        item.className =
+          'download-history-item';
+
+        item.innerHTML = `
+          <div class="download-history-number">
+            ${index + 1}
+          </div>
+
+          <div class="download-history-info">
+            <strong>${escapeHtml(song.title)}</strong>
+            <span>${escapeHtml(song.artist)}</span>
+          </div>
+
+          <div class="download-history-format">
+            ${escapeHtml(song.format)}
+          </div>
+        `;
+
+        container.appendChild(item);
+      }
+    );
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  /* =========================================================
+     YOUTUBE
+     ========================================================= */
 
   function loadYouTubeApi() {
     if (
@@ -629,9 +784,11 @@
   }
 
   function setPlayingUi(playing) {
-    playIcon.hidden = playing;
+    playIcon.hidden =
+      playing;
 
-    pauseIcon.hidden = !playing;
+    pauseIcon.hidden =
+      !playing;
 
     playBtn.setAttribute(
       'aria-label',
@@ -660,7 +817,10 @@
 
   function stopProgress() {
     if (progressTimer) {
-      clearInterval(progressTimer);
+      clearInterval(
+        progressTimer
+      );
+
       progressTimer = null;
     }
   }
@@ -689,11 +849,15 @@
         String(current);
 
       timeTotal.textContent =
-        formatDuration(duration);
+        formatDuration(
+          duration
+        );
     }
 
     timeCurrent.textContent =
-      formatDuration(current);
+      formatDuration(
+        current
+      );
   }
 
   function startProgress() {
@@ -743,8 +907,11 @@
           'div'
         );
 
-      fresh.id = 'yt-player';
-      fresh.className = 'yt-player';
+      fresh.id =
+        'yt-player';
+
+      fresh.className =
+        'yt-player';
 
       document
         .querySelector(
@@ -761,118 +928,124 @@
       );
     }
 
-    return loadYouTubeApi().then(
-      () =>
-        new Promise(
-          (resolve, reject) => {
-            ytPlayer =
-              new window.YT.Player(
-                'yt-player',
-                {
-                  height: '1',
-                  width: '1',
-                  videoId:
-                    currentVideoId,
+    return loadYouTubeApi()
+      .then(
+        () =>
+          new Promise(
+            (resolve, reject) => {
+              ytPlayer =
+                new window.YT.Player(
+                  'yt-player',
+                  {
+                    height: '1',
+                    width: '1',
 
-                  playerVars: {
-                    autoplay: 0,
-                    controls: 0,
-                    disablekb: 1,
-                    fs: 0,
-                    modestbranding: 1,
-                    playsinline: 1,
-                    rel: 0,
-                  },
+                    videoId:
+                      currentVideoId,
 
-                  events: {
-                    onReady: (
-                      event
-                    ) => {
-                      ytReady = true;
-
-                      const duration =
-                        event.target.getDuration() ||
-                        0;
-
-                      seekBar.max =
-                        String(
-                          duration ||
-                            100
-                        );
-
-                      timeTotal.textContent =
-                        formatDuration(
-                          duration
-                        );
-
-                      resolve(
-                        event.target
-                      );
+                    playerVars: {
+                      autoplay: 0,
+                      controls: 0,
+                      disablekb: 1,
+                      fs: 0,
+                      modestbranding: 1,
+                      playsinline: 1,
+                      rel: 0,
                     },
 
-                    onStateChange: (
-                      event
-                    ) => {
-                      const playing =
-                        event.data ===
-                        window.YT.PlayerState.PLAYING;
+                    events: {
+                      onReady:
+                        (event) => {
+                          ytReady =
+                            true;
 
-                      setPlayingUi(
-                        playing
-                      );
+                          const duration =
+                            event.target.getDuration() ||
+                            0;
 
-                      if (playing) {
-                        setPlayerMessage(
-                          ''
-                        );
+                          seekBar.max =
+                            String(
+                              duration ||
+                                100
+                            );
 
-                        startProgress();
-                      } else {
-                        stopProgress();
-                        updateProgress();
-                      }
+                          timeTotal.textContent =
+                            formatDuration(
+                              duration
+                            );
 
-                      if (
-                        event.data ===
-                        window.YT.PlayerState.ENDED
-                      ) {
-                        setPlayingUi(
-                          false
-                        );
+                          resolve(
+                            event.target
+                          );
+                        },
 
-                        seekBar.value =
-                          '0';
+                      onStateChange:
+                        (event) => {
+                          const playing =
+                            event.data ===
+                            window.YT.PlayerState.PLAYING;
 
-                        timeCurrent.textContent =
-                          '0:00';
-                      }
+                          setPlayingUi(
+                            playing
+                          );
+
+                          if (
+                            playing
+                          ) {
+                            setPlayerMessage(
+                              ''
+                            );
+
+                            startProgress();
+                          } else {
+                            stopProgress();
+                            updateProgress();
+                          }
+
+                          if (
+                            event.data ===
+                            window.YT.PlayerState.ENDED
+                          ) {
+                            setPlayingUi(
+                              false
+                            );
+
+                            seekBar.value =
+                              '0';
+
+                            timeCurrent.textContent =
+                              '0:00';
+                          }
+                        },
+
+                      onError:
+                        () => {
+                          setPlayingUi(
+                            false
+                          );
+
+                          setPlayerMessage(
+                            'YouTube bloqueó la reproducción aquí. Prueba abrir el video en YouTube o descarga el audio.'
+                          );
+
+                          reject(
+                            new Error(
+                              'No se pudo reproducir este video.'
+                            )
+                          );
+                        },
                     },
-
-                    onError: () => {
-                      setPlayingUi(
-                        false
-                      );
-
-                      setPlayerMessage(
-                        'YouTube bloqueó la reproducción aquí. Prueba abrir el video en YouTube o descarga el audio.'
-                      );
-
-                      reject(
-                        new Error(
-                          'No se pudo reproducir este video.'
-                        )
-                      );
-                    },
-                  },
-                }
-              );
-          }
-        )
-    );
+                  }
+                );
+            }
+          )
+      );
   }
 
   async function togglePlayback() {
-    if (!currentVideoId) return;
+    if (!currentVideoId) {
+      return;
+    }
 
     playBtn.disabled = true;
 
@@ -915,7 +1088,9 @@
 
       timeCurrent.textContent =
         formatDuration(
-          Number(seekBar.value)
+          Number(
+            seekBar.value
+          )
         );
     }
   );
@@ -932,7 +1107,9 @@
           'function'
       ) {
         ytPlayer.seekTo(
-          Number(seekBar.value),
+          Number(
+            seekBar.value
+          ),
           true
         );
       }
@@ -952,12 +1129,13 @@
       probe.getContext(
         '2d',
         {
-          willReadFrequently:
-            true,
+          willReadFrequently: true,
         }
       );
 
-    if (!ctx) return 'color';
+    if (!ctx) {
+      return 'color';
+    }
 
     ctx.drawImage(
       img,
@@ -1021,7 +1199,9 @@
           previewThumb
         );
 
-      if (tone === 'black') {
+      if (
+        tone === 'black'
+      ) {
         applyPalette(
           MONO_BLACK
         );
@@ -1029,7 +1209,9 @@
         return;
       }
 
-      if (tone === 'white') {
+      if (
+        tone === 'white'
+      ) {
         applyPalette(
           MONO_WHITE
         );
@@ -1050,6 +1232,10 @@
     }
   );
 
+  /* =========================================================
+     BÚSQUEDA
+     ========================================================= */
+
   form.addEventListener(
     'submit',
     async (event) => {
@@ -1058,7 +1244,9 @@
       const url =
         urlInput.value.trim();
 
-      if (!url) return;
+      if (!url) {
+        return;
+      }
 
       clearError();
 
@@ -1066,8 +1254,7 @@
 
       preview.hidden = true;
 
-      downloadStatus.hidden =
-        true;
+      downloadStatus.hidden = true;
 
       destroyPlayer();
 
@@ -1131,7 +1318,8 @@
         timeCurrent.textContent =
           '0:00';
 
-        seekBar.value = '0';
+        seekBar.value =
+          '0';
 
         playerNow.textContent =
           data.title
@@ -1145,10 +1333,10 @@
         playBtn.disabled =
           !currentVideoId;
 
-        preview.hidden = false;
+        preview.hidden =
+          false;
 
         updateFormatUI();
-
       } catch (error) {
         resetPalette();
 
@@ -1162,15 +1350,30 @@
     }
   );
 
+  /* =========================================================
+     DESCARGA
+     ========================================================= */
+
   downloadBtn.addEventListener(
     'click',
     async () => {
-      if (!currentUrl) return;
+      if (!currentUrl) {
+        return;
+      }
 
       const format =
         selectedFormat();
 
-      downloadBtn.disabled = true;
+      const title =
+        previewTitle.textContent ||
+        'audio';
+
+      const artist =
+        previewArtist.textContent ||
+        'Artista desconocido';
+
+      downloadBtn.disabled =
+        true;
 
       downloadBtn.classList.add(
         'loading'
@@ -1213,7 +1416,9 @@
           const data =
             await response
               .json()
-              .catch(() => ({}));
+              .catch(
+                () => ({})
+              );
 
           throw new Error(
             data.detail ||
@@ -1235,13 +1440,28 @@
 
         const match =
           disposition.match(
-            /filename="?([^"]+)"?/
+            /filename\*?=(?:UTF-8''|")?([^";]+)"?/i
           );
 
-        const filename =
+        let filename =
           match
-            ? match[1]
-            : `audio.${format}`;
+            ? decodeURIComponent(
+                match[1]
+              )
+            : '';
+
+        /*
+         * Si el backend no envía nombre,
+         * usamos canción + artista.
+         */
+        if (!filename) {
+          filename =
+            `${sanitizeFilename(
+              title
+            )} - ${sanitizeFilename(
+              artist
+            )}.${format}`;
+        }
 
         if (!response.body) {
           throw new Error(
@@ -1259,17 +1479,35 @@
         const startTime =
           performance.now();
 
+        /*
+         * Mostramos inmediatamente
+         * que la descarga comenzó.
+         */
+        updateDownloadProgress(
+          total > 0
+            ? 1
+            : 2,
+          0,
+          total,
+          0,
+          null
+        );
+
         while (true) {
           const {
             done,
             value,
-          } = await reader.read();
+          } =
+            await reader.read();
 
-          if (done) break;
+          if (done) {
+            break;
+          }
 
           chunks.push(value);
 
-          received += value.length;
+          received +=
+            value.length;
 
           const elapsed =
             (performance.now() -
@@ -1278,19 +1516,30 @@
 
           const speed =
             elapsed > 0
-              ? received / elapsed
+              ? received /
+                elapsed
               : 0;
 
           const percent =
             total > 0
-              ? (received / total) *
+              ? (received /
+                  total) *
                 100
-              : 0;
+              : Math.min(
+                  95,
+                  Math.max(
+                    5,
+                    received /
+                      1024 /
+                      1024
+                  )
+                );
 
           const remaining =
             total > 0 &&
             speed > 0
-              ? (total - received) /
+              ? (total -
+                  received) /
                 speed
               : null;
 
@@ -1342,24 +1591,31 @@
           objectUrl
         );
 
-        await new Promise(
-          (resolve) =>
-            setTimeout(
-              resolve,
-              500
-            )
+        /*
+         * Agregar canción a la lista
+         * de descargas.
+         */
+        addDownloadedSong(
+          title,
+          artist,
+          format
         );
 
-        closeDownloadModal();
-
         downloadStatus.textContent =
-          format === 'wav'
-            ? 'Descarga completa.'
-            : 'Descarga completa, con portada incluida.';
+          '✓ Descarga completada correctamente.';
 
         downloadStatus.hidden =
           false;
 
+        /*
+         * Cerramos rápido la ventana.
+         */
+        setTimeout(
+          () => {
+            closeDownloadModal();
+          },
+          700
+        );
       } catch (error) {
         if (
           error.name ===
@@ -1377,9 +1633,9 @@
           false;
 
         closeDownloadModal();
-
       } finally {
-        downloadController = null;
+        downloadController =
+          null;
 
         downloadBtn.disabled =
           false;
@@ -1397,10 +1653,35 @@
   cancelDownloadBtn.addEventListener(
     'click',
     () => {
-      if (downloadController) {
+      if (
+        downloadController
+      ) {
         downloadController.abort();
       }
     }
   );
 
+  function sanitizeFilename(name) {
+    return String(name || 'audio')
+      .replace(
+        /[<>:"/\\|?*\x00-\x1F]/g,
+        ''
+      )
+      .replace(
+        /\s+/g,
+        ' '
+      )
+      .trim()
+      .replace(
+        /\.+$/,
+        ''
+      )
+      .slice(0, 150);
+  }
+
+  /*
+   * Intentamos mostrar la lista si el HTML
+   * ya tiene el contenedor.
+   */
+  renderDownloadedSongs();
 })();
