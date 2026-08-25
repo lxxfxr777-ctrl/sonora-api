@@ -212,6 +212,7 @@ def _build_ydl_options(
 ) -> dict[str, Any]:
 
     options = _base_options()
+    options["verbose"] = True
 
     options.update(
         {
