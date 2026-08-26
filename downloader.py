@@ -348,11 +348,11 @@ def _base_ydl_options() -> dict[str, Any]:
                 ],
             },
 
-            "youtubepot-bgutilhttp": {
-                "base_url": (
-                    "http://127.0.0.1:4416"
-                ),
-            },
+           "youtubepot-bgutilhttp": {
+    "base_url": [
+        "http://127.0.0.1:4416"
+    ],
+},
         },
 
         # -------------------------------------------------
