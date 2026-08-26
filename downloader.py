@@ -8,8 +8,6 @@ from pathlib import Path
 from typing import Any
 import base64
 import uuid
-import subprocess
-import sys
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -41,24 +39,19 @@ class DownloadFailedError(RuntimeError):
     pass
 
 
-def _update_yt_dlp() -> None:
-    """
-    Intenta actualizar yt-dlp automáticamente.
-    Esto es crucial porque YouTube cambia constantemente.
-    """
-    try:
-        print("[yt-dlp] Intentando actualizar a la última versión...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
-            capture_output=True,
-            timeout=60,
-        )
-        print("[yt-dlp] Actualización completada.")
-    except Exception as e:
-        print(f"[yt-dlp] No se pudo actualizar automáticamente: {e}")
-
+# =========================================================
+# YOUTUBE URL
+# =========================================================
 
 def validate_youtube_url(url: str) -> str:
+    """
+    Valida que la URL proporcionada pertenezca a YouTube.
+    """
+
+    if not isinstance(url, str):
+        raise InvalidYouTubeURLError(
+            "La URL debe ser un texto válido."
+        )
 
     url = url.strip()
 
@@ -88,7 +81,14 @@ def validate_youtube_url(url: str) -> str:
     return url
 
 
+# =========================================================
+# FFMPEG
+# =========================================================
+
 def _ensure_ffmpeg_available() -> None:
+    """
+    Comprueba que FFmpeg esté disponible.
+    """
 
     if shutil.which("ffmpeg") is not None:
         return
@@ -100,16 +100,13 @@ def _ensure_ffmpeg_available() -> None:
     )
 
     for directory in possible_paths:
-
         ffmpeg_path = Path(directory) / "ffmpeg"
 
         if ffmpeg_path.exists():
-
             os.environ["PATH"] = (
                 f"{directory}:"
                 f"{os.environ.get('PATH', '')}"
             )
-
             return
 
     raise DownloadFailedError(
@@ -117,18 +114,29 @@ def _ensure_ffmpeg_available() -> None:
     )
 
 
+# =========================================================
+# COOKIES
+# =========================================================
+
 def _get_cookie_file() -> str | None:
     """
-    Look for cookies to pass to yt-dlp. Order of precedence:
-    1. YTDLP_COOKIES_FILE environment variable (path to a cookies.txt file)
-       - If a basename is provided, also try /etc/secrets/<basename> (Render-style secrets)
-    2. YTDLP_COOKIES_B64 environment variable (base64-encoded cookies file contents)
-    3. YTDLP_COOKIES environment variable (raw cookies file contents)
-    4. /app/cookies.txt (useful in Docker)
-    5. cookies.txt alongside this module
+    Busca un archivo de cookies opcional.
 
-    If cookies are supplied via environment (B64 or raw), this function will
-    write them to a temporary file and return its path.
+    Las cookies NO son obligatorias para el funcionamiento
+    normal del proveedor PO Token.
+
+    Se mantienen como mecanismo de respaldo para casos en
+    los que YouTube solicite autenticación adicional.
+
+    Orden:
+
+    1. YTDLP_COOKIES_FILE
+    2. /etc/secrets/<nombre>
+    3. YTDLP_COOKIES_B64
+    4. YTDLP_COOKIES
+    5. /app/cookies.txt
+    6. /etc/secrets/cookies.txt
+    7. cookies.txt junto a este archivo
     """
 
     env_path = os.environ.get(
@@ -136,47 +144,73 @@ def _get_cookie_file() -> str | None:
     )
 
     if env_path:
-
         path = Path(env_path)
 
         if path.is_file():
             return str(path)
 
-        # If the user provided a basename (like 'cookies.txt'), many PaaS
-        # (e.g. Render) expose secret files under /etc/secrets/<name>.
-        # Try that location when the exact path wasn't found.
-        secrets_path = Path("/etc/secrets") / path.name
+        secrets_path = (
+            Path("/etc/secrets") / path.name
+        )
+
         if secrets_path.is_file():
             return str(secrets_path)
 
-    # Support base64-encoded cookies in an env var (useful for CI / Docker secrets)
-    b64 = os.environ.get("YTDLP_COOKIES_B64")
+    # -----------------------------------------------------
+    # Base64
+    # -----------------------------------------------------
+
+    b64 = os.environ.get(
+        "YTDLP_COOKIES_B64"
+    )
 
     if b64:
         try:
-            data = base64.b64decode(b64)
+            data = base64.b64decode(
+                b64,
+                validate=True,
+            )
         except Exception:
-            # If decoding fails, fall through and try other sources
             data = None
 
         if data:
-            tmp = Path(tempfile.gettempdir()) / f"ytdlp_cookies_{uuid.uuid4().hex}.txt"
+            tmp = (
+                Path(tempfile.gettempdir())
+                / f"ytdlp_cookies_{uuid.uuid4().hex}.txt"
+            )
+
             try:
                 tmp.write_bytes(data)
                 return str(tmp)
             except Exception:
                 pass
 
-    # Support raw cookies content in an env var
-    raw = os.environ.get("YTDLP_COOKIES")
+    # -----------------------------------------------------
+    # Raw cookies
+    # -----------------------------------------------------
+
+    raw = os.environ.get(
+        "YTDLP_COOKIES"
+    )
 
     if raw:
-        tmp = Path(tempfile.gettempdir()) / f"ytdlp_cookies_{uuid.uuid4().hex}.txt"
+        tmp = (
+            Path(tempfile.gettempdir())
+            / f"ytdlp_cookies_{uuid.uuid4().hex}.txt"
+        )
+
         try:
-            tmp.write_text(raw)
+            tmp.write_text(
+                raw,
+                encoding="utf-8",
+            )
             return str(tmp)
         except Exception:
             pass
+
+    # -----------------------------------------------------
+    # Docker
+    # -----------------------------------------------------
 
     default_path = Path(
         "/app/cookies.txt"
@@ -185,10 +219,20 @@ def _get_cookie_file() -> str | None:
     if default_path.is_file():
         return str(default_path)
 
-    # Also try Render-style secret location directly as a fallback
-    etc_secret = Path("/etc/secrets/cookies.txt")
+    # -----------------------------------------------------
+    # Render secret
+    # -----------------------------------------------------
+
+    etc_secret = Path(
+        "/etc/secrets/cookies.txt"
+    )
+
     if etc_secret.is_file():
         return str(etc_secret)
+
+    # -----------------------------------------------------
+    # Archivo local
+    # -----------------------------------------------------
 
     local_path = (
         Path(__file__).resolve().parent
@@ -201,15 +245,42 @@ def _get_cookie_file() -> str | None:
     return None
 
 
+# =========================================================
+# YT-DLP
+# =========================================================
+
 def _base_ydl_options() -> dict[str, Any]:
+    """
+    Configuración central de yt-dlp.
+
+    La parte importante de esta configuración es:
+
+        youtubepot-bgutilhttp
+
+    que permite al plugin bgutil solicitar automáticamente
+    PO Tokens al servidor local:
+
+        http://127.0.0.1:4416
+
+    Esto elimina la necesidad de copiar manualmente un
+    PO Token para cada vídeo.
+    """
 
     options: dict[str, Any] = {
+        # -------------------------------------------------
+        # General
+        # -------------------------------------------------
 
         "quiet": False,
 
         "no_warnings": False,
 
-        # Formato flexible que acepta cualquier audio disponible
+        "noprogress": False,
+
+        # -------------------------------------------------
+        # Formato
+        # -------------------------------------------------
+
         "format": (
             "bestaudio[ext=m4a]/"
             "bestaudio[ext=webm]/"
@@ -218,9 +289,19 @@ def _base_ydl_options() -> dict[str, Any]:
             "best"
         ),
 
-        "retries": 20,
+        # -------------------------------------------------
+        # Reintentos
+        # -------------------------------------------------
 
-        "fragment_retries": 20,
+        "retries": 10,
+
+        "fragment_retries": 10,
+
+        "file_access_retries": 5,
+
+        # -------------------------------------------------
+        # Red
+        # -------------------------------------------------
 
         "force_ipv4": True,
 
@@ -232,35 +313,71 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "http_chunk_size": 10485760,
 
-        # CRUCIAL: Usar los extractores más recientes
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web", "android", "ios", "mweb"],
-                "player_skip": [],
-                "skip": [],
-                "lang": ["es", "en"],
+        # -------------------------------------------------
+        # JavaScript / Deno
+        # -------------------------------------------------
+
+        "js_runtimes": {
+            "deno": {
+                "path": "deno",
             }
         },
 
-        # Headers realistas y completos
+        # -------------------------------------------------
+        # Componentes EJS
+        # -------------------------------------------------
+
+        "remote_components": {
+            "ejs": "github",
+        },
+
+        # -------------------------------------------------
+        # YOUTUBE
+        # -------------------------------------------------
+        #
+        # mweb es el cliente recomendado por la guía actual
+        # de yt-dlp cuando se utiliza un proveedor PO Token.
+        #
+        # bgutil proporciona automáticamente el token.
+        # -------------------------------------------------
+
+        "extractor_args": {
+            "youtube": {
+                "player_client": [
+                    "mweb"
+                ],
+            },
+
+            "youtubepot-bgutilhttp": {
+                "base_url": (
+                    "http://127.0.0.1:4416"
+                ),
+            },
+        },
+
+        # -------------------------------------------------
+        # User-Agent
+        # -------------------------------------------------
+
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 "
                 "(Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
-                "Chrome/130.0.0.0 "
-                "Safari/537.36 "
-                "Edg/130.0.0.0"
+                "Chrome/139.0.0.0 "
+                "Safari/537.36"
             ),
 
             "Accept-Language": (
-                "en-US,en;q=0.9,es;q=0.8"
+                "es-CO,es;q=0.9,en;q=0.8"
             ),
 
             "Accept": (
-                "text/html,application/xhtml+xml,"
-                "application/xml;q=0.9,*/*;q=0.8"
+                "text/html,"
+                "application/xhtml+xml,"
+                "application/xml;q=0.9,"
+                "*/*;q=0.8"
             ),
 
             "Accept-Encoding": (
@@ -281,60 +398,105 @@ def _base_ydl_options() -> dict[str, Any]:
 
             "Sec-Fetch-User": "?1",
 
-            "Sec-Ch-Ua": '"Microsoft Edge";v="130"',
+            "Sec-Ch-Ua": (
+                '"Chromium";v="139", '
+                '"Not;A=Brand";v="99"'
+            ),
 
             "Sec-Ch-Ua-Mobile": "?0",
 
-            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Ch-Ua-Platform": (
+                '"Windows"'
+            ),
         },
+
+        # -------------------------------------------------
+        # SSL / HTTP
+        # -------------------------------------------------
 
         "suppress_http_warnings": True,
 
         "no_check_certificate": True,
 
-        # Bypass geográfico automático
+        # -------------------------------------------------
+        # Geolocalización
+        # -------------------------------------------------
+
         "geo_bypass": True,
 
-        "geo_bypass_country": "US",
+        # -------------------------------------------------
+        # Fragmentos
+        # -------------------------------------------------
 
-        # Permitir más errores antes de fallar
         "skip_unavailable_fragments": True,
 
-        # Preferir FFmpeg
+        # -------------------------------------------------
+        # FFmpeg
+        # -------------------------------------------------
+
         "prefer_ffmpeg": True,
 
-        # Permitir formatos no reproducibles (para debugging)
+        # -------------------------------------------------
+        # Formatos
+        # -------------------------------------------------
+
         "allow_unplayable_formats": False,
     }
 
-    # Proxy support (useful if your server IP is geo-blocked)
-    proxy = os.environ.get("YTDLP_PROXY")
+    # =====================================================
+    # PROXY OPCIONAL
+    # =====================================================
+
+    proxy = os.environ.get(
+        "YTDLP_PROXY"
+    )
+
     if proxy:
         options["proxy"] = proxy
+
+    # =====================================================
+    # COOKIES OPCIONALES
+    # =====================================================
 
     cookies_file = _get_cookie_file()
 
     if cookies_file:
+        print(
+            "[yt-dlp] Usando archivo de cookies "
+            f"opcional: {cookies_file}"
+        )
+
         options["cookiefile"] = cookies_file
+
+    else:
+        print(
+            "[yt-dlp] No se encontró cookies.txt. "
+            "Se utilizará PO Token Provider."
+        )
 
     return options
 
 
+# =========================================================
+# INFORMACIÓN DEL VIDEO
+# =========================================================
+
 def get_video_info(
     url: str,
 ) -> dict[str, Any]:
+    """
+    Obtiene información básica de un vídeo de YouTube.
+    """
 
     validate_youtube_url(url)
-
-    # Intentar actualizar yt-dlp antes de extraer
-    _update_yt_dlp()
 
     options = _base_ydl_options()
 
     options["skip_download"] = True
 
-    try:
+    options["noplaylist"] = True
 
+    try:
         with yt_dlp.YoutubeDL(
             options
         ) as ydl:
@@ -345,16 +507,28 @@ def get_video_info(
             )
 
     except DownloadError as exc:
+        message = str(exc)
 
+        raise DownloadFailedError(
+            _friendly_download_error(
+                message
+            )
+        ) from exc
+
+    except Exception as exc:
         raise DownloadFailedError(
             str(exc)
         ) from exc
 
     if info is None:
-
         raise DownloadFailedError(
-            "No se pudo obtener información del video."
+            "No se pudo obtener información "
+            "del video."
         )
+
+    # =====================================================
+    # PALETA
+    # =====================================================
 
     from palette import (
         attach_palette,
@@ -365,7 +539,9 @@ def get_video_info(
         {
             "id": info.get("id"),
 
-            "title": info.get("title"),
+            "title": info.get(
+                "title"
+            ),
 
             "duration": info.get(
                 "duration"
@@ -387,22 +563,34 @@ def get_video_info(
     )
 
 
+# =========================================================
+# OPCIONES DE DESCARGA
+# =========================================================
+
 def _build_ydl_options(
     output_template: str,
     audio_format: str,
     embed_thumbnail: bool,
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
+    """
+    Construye las opciones finales de yt-dlp.
+    """
 
     options = _base_ydl_options()
 
     options["outtmpl"] = output_template
 
-    if progress_callback:
+    options["noplaylist"] = True
 
+    if progress_callback:
         options["progress_hooks"] = [
             progress_callback
         ]
+
+    # =====================================================
+    # POSTPROCESADORES
+    # =====================================================
 
     postprocessors: list[
         dict[str, Any]
@@ -418,8 +606,11 @@ def _build_ydl_options(
         }
     ]
 
-    if embed_thumbnail:
+    # =====================================================
+    # MINIATURA
+    # =====================================================
 
+    if embed_thumbnail:
         options["writethumbnail"] = True
 
         postprocessors.append(
@@ -445,6 +636,10 @@ def _build_ydl_options(
     return options
 
 
+# =========================================================
+# EJECUTAR YT-DLP
+# =========================================================
+
 def _run_yt_dlp(
     output_template: str,
     url: str,
@@ -452,6 +647,9 @@ def _run_yt_dlp(
     embed_thumbnail: bool,
     progress_callback: ProgressCallback | None = None,
 ):
+    """
+    Ejecuta yt-dlp utilizando la configuración central.
+    """
 
     options = _build_ydl_options(
         output_template=output_template,
@@ -473,18 +671,190 @@ def _run_yt_dlp(
         )
 
 
+# =========================================================
+# MENSAJES DE ERROR
+# =========================================================
+
+def _friendly_download_error(
+    message: str,
+) -> str:
+    """
+    Convierte errores técnicos de yt-dlp en mensajes
+    más útiles para la API.
+    """
+
+    lowered = message.lower()
+
+    # -----------------------------------------------------
+    # PO TOKEN / BOT
+    # -----------------------------------------------------
+
+    if (
+        "failed to extract any player response"
+        in lowered
+    ):
+        return (
+            "YouTube no devolvió una respuesta válida "
+            "del reproductor. El proveedor PO Token "
+            "puede estar iniciándose o YouTube puede "
+            "haber cambiado temporalmente su sistema. "
+            "Intenta nuevamente."
+        )
+
+    if (
+        "sign in to confirm"
+        in lowered
+        or "not a bot"
+        in lowered
+        or "po token"
+        in lowered
+    ):
+        return (
+            "YouTube está solicitando una verificación "
+            "adicional. El proveedor PO Token no pudo "
+            "completarla para este vídeo. Intenta "
+            "nuevamente más tarde."
+        )
+
+    # -----------------------------------------------------
+    # LOGIN
+    # -----------------------------------------------------
+
+    if (
+        "login_required"
+        in lowered
+        or "please sign in"
+        in lowered
+        or "authentication required"
+        in lowered
+    ):
+        return (
+            "YouTube requiere autenticación para este "
+            "vídeo. Si es un contenido privado o "
+            "restringido, puede ser necesario proporcionar "
+            "cookies válidas."
+        )
+
+    # -----------------------------------------------------
+    # 403
+    # -----------------------------------------------------
+
+    if (
+        "http error 403"
+        in lowered
+        or "403 forbidden"
+        in lowered
+    ):
+        return (
+            "YouTube rechazó la solicitud con HTTP 403. "
+            "El vídeo o la IP pueden estar temporalmente "
+            "restringidos."
+        )
+
+    # -----------------------------------------------------
+    # 429
+    # -----------------------------------------------------
+
+    if (
+        "http error 429"
+        in lowered
+        or "too many requests"
+        in lowered
+    ):
+        return (
+            "YouTube limitó temporalmente la cantidad de "
+            "solicitudes desde esta IP. Intenta nuevamente "
+            "más tarde."
+        )
+
+    # -----------------------------------------------------
+    # FORMATO
+    # -----------------------------------------------------
+
+    if (
+        "requested format is not available"
+        in lowered
+    ):
+        return (
+            "El formato de audio solicitado no está "
+            "disponible para este vídeo. Puede tratarse "
+            "de un livestream, vídeo privado o contenido "
+            "con restricciones."
+        )
+
+    # -----------------------------------------------------
+    # VIDEO NO DISPONIBLE
+    # -----------------------------------------------------
+
+    if (
+        "video unavailable"
+        in lowered
+        or "this video is unavailable"
+        in lowered
+    ):
+        return (
+            "El vídeo no está disponible en YouTube."
+        )
+
+    # -----------------------------------------------------
+    # GEO
+    # -----------------------------------------------------
+
+    if (
+        "not available in your country"
+        in lowered
+        or "geo-restricted"
+        in lowered
+    ):
+        return (
+            "Este vídeo tiene restricciones "
+            "geográficas."
+        )
+
+    # -----------------------------------------------------
+    # ERROR GENÉRICO
+    # -----------------------------------------------------
+
+    if (
+        "unable to extract"
+        in lowered
+    ):
+        return (
+            "No se pudo extraer la información del "
+            "vídeo. YouTube puede haber cambiado "
+            "temporalmente su sistema de reproducción."
+        )
+
+    return message
+
+
+# =========================================================
+# DESCARGAR AUDIO
+# =========================================================
+
 def download_audio(
     url: str,
     audio_format: str = "mp3",
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[Path, str, str]:
+    """
+    Descarga un vídeo de YouTube y lo convierte al formato
+    de audio solicitado.
+
+    Retorna:
+
+        (archivo, título, uploader)
+    """
 
     validate_youtube_url(url)
 
-    audio_format = audio_format.lower()
+    audio_format = audio_format.lower().strip()
+
+    # =====================================================
+    # VALIDAR FORMATO
+    # =====================================================
 
     if audio_format not in SUPPORTED_FORMATS:
-
         raise ValueError(
             f"Formato no soportado: "
             f"{audio_format}. "
@@ -492,15 +862,24 @@ def download_audio(
             f"{', '.join(sorted(SUPPORTED_FORMATS))}"
         )
 
+    # =====================================================
+    # FFMPEG
+    # =====================================================
+
     _ensure_ffmpeg_available()
 
-    # Intentar actualizar yt-dlp antes de descargar
-    _update_yt_dlp()
+    # =====================================================
+    # MINIATURA
+    # =====================================================
 
     embed_thumbnail = (
         audio_format
         in THUMBNAIL_EMBED_FORMATS
     )
+
+    # =====================================================
+    # DIRECTORIO TEMPORAL
+    # =====================================================
 
     temp_dir = Path(
         tempfile.mkdtemp(
@@ -536,51 +915,10 @@ def download_audio(
 
         message = str(exc)
 
-        # Detectar error de player response (YouTube cambió)
-        if "Failed to extract any player response" in message:
-            raise DownloadFailedError(
-                "YouTube modificó su estructura. Actualizando yt-dlp automáticamente... Por favor intenta de nuevo en unos segundos."
-            ) from exc
-
-        if (
-            "Sign in to confirm"
-            in message
-            or "LOGIN_REQUIRED"
-            in message
-            or "Please sign in"
-            in message
-        ):
-
-            raise DownloadFailedError(
-                "YouTube está bloqueando esta solicitud. Las cookies de YouTube no son válidas o la sesión requiere autenticación. Proporciona cookies mediante YTDLP_COOKIES_B64/YTDLP_COOKIES_FILE/YTDLP_COOKIES."
-            ) from exc
-
-        if "HTTP Error 403" in message:
-
-            raise DownloadFailedError(
-                "YouTube rechazó la descarga con HTTP 403. Intenta más tarde, verifica tu conexión o proporciona cookies válidas."
-            ) from exc
-
-        if "HTTP Error 429" in message:
-
-            raise DownloadFailedError(
-                "Demasiadas solicitudes (429). YouTube bloqueó temporalmente la IP. Intenta de nuevo en unos minutos o usa un proxy."
-            ) from exc
-
-        if "Requested format is not available" in message:
-
-            raise DownloadFailedError(
-                "El formato de audio no está disponible para este video. Es posible que sea un livestream, video privado o esté restringido geográficamente."
-            ) from exc
-
-        if "Unable to extract" in message or "ERROR" in message:
-
-            raise DownloadFailedError(
-                f"No se pudo extraer la información del video. Verifica el enlace o intenta más tarde. Detalles: {message[:100]}"
-            ) from exc
-
         raise DownloadFailedError(
-            message
+            _friendly_download_error(
+                message
+            )
         ) from exc
 
     except Exception as exc:
@@ -594,6 +932,10 @@ def download_audio(
             str(exc)
         ) from exc
 
+    # =====================================================
+    # VALIDAR INFO
+    # =====================================================
+
     if info is None:
 
         shutil.rmtree(
@@ -604,6 +946,10 @@ def download_audio(
         raise DownloadFailedError(
             "No se pudo descargar el audio."
         )
+
+    # =====================================================
+    # METADATA
+    # =====================================================
 
     title = (
         info.get("title")
@@ -616,11 +962,19 @@ def download_audio(
         or ""
     )
 
+    # =====================================================
+    # BUSCAR ARCHIVO
+    # =====================================================
+
     downloaded_files = list(
         temp_dir.glob(
             f"*.{audio_format}"
         )
     )
+
+    # =====================================================
+    # SI NO ENCUENTRA ARCHIVO
+    # =====================================================
 
     if not downloaded_files:
 
@@ -629,9 +983,39 @@ def download_audio(
             ignore_errors=True,
         )
 
+        # En algunos casos FFmpeg puede producir una
+        # extensión distinta. Buscamos cualquier archivo
+        # de audio antes de declarar el proceso fallido.
+
+        possible_audio_files = []
+
+        for extension in (
+            "mp3",
+            "m4a",
+            "opus",
+            "wav",
+        ):
+            possible_audio_files.extend(
+                temp_dir.glob(
+                    f"*.{extension}"
+                )
+            )
+
+        if possible_audio_files:
+            return (
+                possible_audio_files[0],
+                title,
+                uploader,
+            )
+
         raise DownloadFailedError(
-            "La descarga terminó pero no se encontró el archivo de audio."
+            "La descarga terminó pero no se encontró "
+            "el archivo de audio."
         )
+
+    # =====================================================
+    # RESULTADO
+    # =====================================================
 
     return (
         downloaded_files[0],
