@@ -1,29 +1,39 @@
 # =========================================================
-# ETAPA 1: COMPILAR BGUTIL PO TOKEN PROVIDER
+# ETAPA 1 - COMPILAR BGUTIL PO TOKEN PROVIDER
 # =========================================================
 
 FROM node:25-bookworm-slim AS bgutil-builder
 
+# Instalar Git porque vamos a descargar bgutil desde GitHub
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /bgutil
 
+# IMPORTANTE:
+# El repositorio actualmente tiene disponible el tag 1.3.1.
+# El plugin Python 1.3.2 se mantiene instalado aparte.
 RUN git clone \
     --depth 1 \
-    --branch 1.3.2 \
+    --single-branch \
+    --branch 1.3.1 \
     https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
     .
 
 WORKDIR /bgutil/server
 
-# Instalamos TODAS las dependencias, incluyendo TypeScript.
-# No usamos --omit=dev porque TypeScript está entre las
-# dependencias necesarias para compilar el servidor.
+# Instalar dependencias
 RUN npm ci --no-audit --no-fund
 
+# Compilar TypeScript
 RUN npx tsc
 
 
 # =========================================================
-# ETAPA 2: SONORA API
+# ETAPA 2 - SONORA
 # =========================================================
 
 FROM python:3.12-slim
@@ -56,7 +66,7 @@ RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y \
 
 
 # =========================================================
-# APLICACIÓN SONORA
+# SONORA
 # =========================================================
 
 WORKDIR /app
@@ -72,19 +82,7 @@ RUN python -m pip install \
 
 
 # =========================================================
-# BGUTIL
-# =========================================================
-#
-# Copiamos el servidor ya compilado desde la primera etapa.
-#
-# El servidor oficial utiliza:
-#
-#   build/main.js
-#
-# y escucha en:
-#
-#   4416
-#
+# COPIAR BGUTIL COMPILADO
 # =========================================================
 
 COPY --from=bgutil-builder \
@@ -99,20 +97,16 @@ COPY --from=bgutil-builder \
     /bgutil/server/package.json \
     /opt/bgutil/server/package.json
 
-COPY --from=bgutil-builder \
-    /bgutil/server/package-lock.json \
-    /opt/bgutil/server/package-lock.json
-
 
 # =========================================================
-# CÓDIGO DE SONORA
+# CÓDIGO SONORA
 # =========================================================
 
 COPY . .
 
 
 # =========================================================
-# SEGURIDAD DE COOKIES
+# COOKIES OPCIONALES
 # =========================================================
 
 RUN if [ -f /app/cookies.txt ]; then \
@@ -128,7 +122,7 @@ RUN mkdir -p /opt/deno-cache
 
 
 # =========================================================
-# PUERTO
+# PUERTO RENDER
 # =========================================================
 
 EXPOSE 10000
@@ -137,31 +131,21 @@ EXPOSE 10000
 # =========================================================
 # ARRANQUE
 # =========================================================
-#
-# PROCESO 1:
-#   bgutil PO Token Provider
-#   http://127.0.0.1:4416
-#
-# PROCESO 2:
-#   FastAPI / SONORA
-#   http://0.0.0.0:${PORT}
-#
-# =========================================================
 
 CMD ["sh", "-c", "\
     echo '========================================'; \
-    echo ' SONORA - INICIANDO BGUTIL PO PROVIDER'; \
+    echo ' INICIANDO BGUTIL PO TOKEN PROVIDER'; \
     echo '========================================'; \
     node /opt/bgutil/server/build/main.js --port 4416 & \
     BGUTIL_PID=$!; \
     sleep 3; \
     if ! kill -0 $BGUTIL_PID 2>/dev/null; then \
-        echo '[ERROR] bgutil no pudo iniciarse'; \
+        echo '[ERROR] BGUTIL NO PUDO INICIARSE'; \
         exit 1; \
     fi; \
-    echo '[OK] bgutil ejecutándose en 127.0.0.1:4416'; \
+    echo '[OK] BGUTIL funcionando en 127.0.0.1:4416'; \
     echo '========================================'; \
-    echo ' SONORA - INICIANDO FASTAPI'; \
+    echo ' INICIANDO SONORA FASTAPI'; \
     echo '========================================'; \
     exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} \
 "]
