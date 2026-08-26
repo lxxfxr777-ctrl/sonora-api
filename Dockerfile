@@ -4,7 +4,7 @@
 
 FROM node:25-bookworm-slim AS bgutil-builder
 
-# Instalar Git porque vamos a descargar bgutil desde GitHub
+# Git es necesario para descargar bgutil
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
@@ -13,9 +13,8 @@ RUN apt-get update \
 
 WORKDIR /bgutil
 
-# IMPORTANTE:
-# El repositorio actualmente tiene disponible el tag 1.3.1.
-# El plugin Python 1.3.2 se mantiene instalado aparte.
+# La versión 1.3.1 es la versión del servidor disponible
+# como tag en el repositorio.
 RUN git clone \
     --depth 1 \
     --single-branch \
@@ -25,24 +24,25 @@ RUN git clone \
 
 WORKDIR /bgutil/server
 
-# Instalar dependencias
-RUN npm ci --no-audit --no-fund
+# Instalar dependencias completas porque necesitamos
+# TypeScript para compilar el servidor.
+RUN npm ci \
+    --no-audit \
+    --no-fund
 
 # Compilar TypeScript
 RUN npx tsc
 
 
 # =========================================================
-# ETAPA 2 - SONORA
+# ETAPA 2 - SONORA API
 # =========================================================
 
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DENO_NO_PROMPT=1 \
-    DENO_NO_UPDATE_CHECK=1 \
-    DENO_DIR=/opt/deno-cache
+    NODE_PATH=/usr/local/lib/node_modules
 
 # =========================================================
 # DEPENDENCIAS DEL SISTEMA
@@ -57,12 +57,19 @@ RUN apt-get update \
 
 
 # =========================================================
-# DENO
+# COPIAR NODE.JS DESDE LA IMAGEN OFICIAL
 # =========================================================
 
-RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y \
-    && mv /root/.deno/bin/deno /usr/local/bin/deno \
-    && deno --version
+COPY --from=bgutil-builder /usr/local/bin/node /usr/local/bin/node
+
+COPY --from=bgutil-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+
+# Crear enlaces para que node esté disponible
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && node --version \
+    && npm --version
 
 
 # =========================================================
@@ -82,7 +89,7 @@ RUN python -m pip install \
 
 
 # =========================================================
-# COPIAR BGUTIL COMPILADO
+# BGUTIL COMPILADO
 # =========================================================
 
 COPY --from=bgutil-builder \
@@ -99,7 +106,7 @@ COPY --from=bgutil-builder \
 
 
 # =========================================================
-# CÓDIGO SONORA
+# CÓDIGO DE SONORA
 # =========================================================
 
 COPY . .
@@ -115,14 +122,7 @@ RUN if [ -f /app/cookies.txt ]; then \
 
 
 # =========================================================
-# CACHE DENO
-# =========================================================
-
-RUN mkdir -p /opt/deno-cache
-
-
-# =========================================================
-# PUERTO RENDER
+# PUERTO
 # =========================================================
 
 EXPOSE 10000
@@ -131,10 +131,20 @@ EXPOSE 10000
 # =========================================================
 # ARRANQUE
 # =========================================================
+#
+# PROCESO 1:
+# BGUTIL
+# http://127.0.0.1:4416
+#
+# PROCESO 2:
+# FASTAPI
+# http://0.0.0.0:${PORT}
+#
+# =========================================================
 
 CMD ["sh", "-c", "\
     echo '========================================'; \
-    echo ' INICIANDO BGUTIL PO TOKEN PROVIDER'; \
+    echo ' SONORA - BGUTIL PO TOKEN PROVIDER'; \
     echo '========================================'; \
     node /opt/bgutil/server/build/main.js --port 4416 & \
     BGUTIL_PID=$!; \
@@ -145,7 +155,7 @@ CMD ["sh", "-c", "\
     fi; \
     echo '[OK] BGUTIL funcionando en 127.0.0.1:4416'; \
     echo '========================================'; \
-    echo ' INICIANDO SONORA FASTAPI'; \
+    echo ' SONORA - FASTAPI'; \
     echo '========================================'; \
     exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} \
 "]
