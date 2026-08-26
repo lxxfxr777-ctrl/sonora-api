@@ -6,84 +6,119 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DENO_NO_UPDATE_CHECK=1 \
     DENO_DIR=/opt/deno-cache
 
-# Dependencias del sistema
+# =========================================================
+# DEPENDENCIAS DEL SISTEMA
+# =========================================================
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg \
         curl \
         unzip \
         git \
+        nodejs \
+        npm \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ---------------------------------------------------------
+# =========================================================
 # DENO
-# ---------------------------------------------------------
-# Deno >= 2.0 es compatible con el proveedor bgutil
-# y también sirve como runtime JavaScript para yt-dlp.
+# =========================================================
+
 RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y \
     && mv /root/.deno/bin/deno /usr/local/bin/deno \
     && deno --version
 
+# =========================================================
+# DIRECTORIO DE LA APLICACIÓN
+# =========================================================
+
 WORKDIR /app
 
-# ---------------------------------------------------------
-# PYTHON DEPENDENCIES
-# ---------------------------------------------------------
+# =========================================================
+# DEPENDENCIAS PYTHON
+# =========================================================
+
 COPY requirements.txt .
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir -r requirements.txt
 
-# ---------------------------------------------------------
+# =========================================================
 # BGUTIL PO TOKEN PROVIDER
-# ---------------------------------------------------------
-# Descargamos exactamente la misma versión del proveedor
-# que utilizaremos mediante el paquete Python.
+# =========================================================
+#
+# El servidor bgutil funciona en el puerto 4416.
+# Se compila dentro de la misma imagen para que:
+#
+# SONORA API
+#      |
+#      +---- yt-dlp
+#      |
+#      +---- bgutil :4416
+#
+# =========================================================
+
 RUN git clone \
         --depth 1 \
         --branch 1.3.2 \
         https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
         /opt/bgutil-ytdlp-pot-provider
 
-# Instalamos las dependencias del servidor Deno.
-RUN cd /opt/bgutil-ytdlp-pot-provider/server \
-    && deno install --allow-scripts=npm:canvas --frozen
+WORKDIR /opt/bgutil-ytdlp-pot-provider/server
 
-# ---------------------------------------------------------
-# APPLICATION
-# ---------------------------------------------------------
+RUN npm ci --omit=dev \
+    && npx tsc
+
+# =========================================================
+# VOLVER A LA APLICACIÓN
+# =========================================================
+
+WORKDIR /app
+
 COPY . .
 
-# Seguridad para cookies si existieran.
+# =========================================================
+# SEGURIDAD PARA COOKIES
+# =========================================================
+
 RUN if [ -f /app/cookies.txt ]; then \
         chmod 600 /app/cookies.txt || true; \
     fi
 
-# Cache de Deno
+# =========================================================
+# CACHE DENO
+# =========================================================
+
 RUN mkdir -p /opt/deno-cache
+
+# =========================================================
+# PUERTO DE RENDER
+# =========================================================
 
 EXPOSE 10000
 
-# ---------------------------------------------------------
-# START
-# ---------------------------------------------------------
-# 1. Arranca bgutil en el puerto 4416.
-# 2. Después arranca FastAPI en el puerto de Render.
+# =========================================================
+# ARRANQUE
+# =========================================================
 #
-# Ambos procesos viven dentro del mismo contenedor, por lo
-# que yt-dlp podrá comunicarse con:
+# Primero:
+#   bgutil PO Token Provider -> puerto 4416
 #
-# http://127.0.0.1:4416
-# ---------------------------------------------------------
+# Después:
+#   FastAPI -> puerto PORT de Render
+#
+# =========================================================
+
 CMD ["sh", "-c", "\
-    cd /opt/bgutil-ytdlp-pot-provider/server/node_modules && \
-    deno run \
-        --allow-env \
-        --allow-net \
-        --allow-ffi=. \
-        --allow-read=. \
-        ../src/main.ts --port 4416 & \
-    echo '[bgutil] PO Token Provider iniciado en http://127.0.0.1:4416' && \
+    node /opt/bgutil-ytdlp-pot-provider/server/build/main.js --port 4416 & \
+    BGUTIL_PID=$!; \
+    echo '[bgutil] PO Token Provider iniciado en http://127.0.0.1:4416'; \
+    sleep 2; \
+    if ! kill -0 $BGUTIL_PID 2>/dev/null; then \
+        echo '[bgutil] ERROR: el proveedor PO Token no pudo iniciarse'; \
+        exit 1; \
+    fi; \
+    echo '[sonora] Iniciando FastAPI...'; \
     exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} \
 "]
