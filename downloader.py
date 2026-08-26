@@ -119,13 +119,34 @@ def _ensure_ffmpeg_available() -> None:
     )
 
 
+def _get_cookie_file() -> str | None:
+    """
+    Devuelve el archivo de cookies que debe usar yt-dlp, si existe.
+
+    Prioridad:
+    1. YTDLP_COOKIES_FILE, si apunta a un archivo existente.
+    2. /app/cookies.txt, que es el archivo usado por los endpoints de la API.
+
+    No se cargan cookies si el archivo no existe.
+    """
+    configured = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
+    candidates = [configured] if configured else []
+    candidates.append("/app/cookies.txt")
+
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
+
+    return None
+
+
 def _base_ydl_options() -> dict[str, Any]:
     """
     Opciones centrales de yt-dlp para SONORA.
 
     IMPORTANTE:
 
-    - No utiliza cookies.
+    - Utiliza cookies solo si se proporciona un archivo válido.
     - No actualiza yt-dlp durante cada petición.
     - Utiliza Node.js para EJS.
     - Habilita ejs:github.
@@ -230,52 +251,11 @@ def _base_ydl_options() -> dict[str, Any]:
 
         "http_headers": {
             "User-Agent": (
-                "Mozilla/5.0 "
-                "(Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/131.0.0.0 "
-                "Safari/537.36"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/142.0.0.0 Safari/537.36"
             ),
-
-            "Accept-Language": (
-                "es-CO,es;q=0.9,en-US;q=0.8,en;q=0.7"
-            ),
-
-            "Accept": (
-                "text/html,application/xhtml+xml,"
-                "application/xml;q=0.9,"
-                "image/avif,image/webp,"
-                "*/*;q=0.8"
-            ),
-
-            "Accept-Encoding": (
-                "gzip, deflate, br"
-            ),
-
-            "DNT": "1",
-
-            "Connection": "keep-alive",
-
-            "Upgrade-Insecure-Requests": "1",
-
-            "Sec-Fetch-Dest": "document",
-
-            "Sec-Fetch-Mode": "navigate",
-
-            "Sec-Fetch-Site": "none",
-
-            "Sec-Fetch-User": "?1",
-
-            "Sec-Ch-Ua": (
-                '"Chromium";v="131", '
-                '"Google Chrome";v="131", '
-                '"Not_A Brand";v="24"'
-            ),
-
-            "Sec-Ch-Ua-Mobile": "?0",
-
-            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Accept-Language": "es-CO,es;q=0.9,en-US;q=0.8,en;q=0.7",
         },
 
         # =================================================
@@ -311,7 +291,22 @@ def _base_ydl_options() -> dict[str, Any]:
         # =================================================
 
         "allow_unplayable_formats": False,
+
+        # Evita que una URL de playlist haga múltiples descargas
+        # cuando la API espera un solo vídeo.
+        "noplaylist": True,
+
+        # Mantiene una caché local para EJS/yt-dlp.
+        "cachedir": "/tmp/yt-dlp-cache",
     }
+
+    # =====================================================
+    # COOKIES OPCIONALES
+    # =====================================================
+
+    cookie_file = _get_cookie_file()
+    if cookie_file:
+        options["cookiefile"] = cookie_file
 
     # =====================================================
     # PROXY OPCIONAL
