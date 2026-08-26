@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-
-import yt_dlp
-from yt_dlp.utils import DownloadError
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 SUPPORTED_FORMATS = {
@@ -16,13 +16,6 @@ SUPPORTED_FORMATS = {
     "m4a",
     "opus",
     "wav",
-}
-
-
-THUMBNAIL_EMBED_FORMATS = {
-    "mp3",
-    "m4a",
-    "opus",
 }
 
 
@@ -35,25 +28,6 @@ class InvalidYouTubeURLError(ValueError):
 
 class DownloadFailedError(RuntimeError):
     pass
-
-
-def _get_node_path() -> str:
-    """
-    Obtiene la ruta de Node.js.
-
-    El Dockerfile de SONORA instala Node.js 25.
-    yt-dlp necesita que Node se habilite explícitamente
-    para ejecutar los solucionadores EJS de YouTube.
-    """
-
-    node_path = shutil.which("node")
-
-    if node_path is None:
-        raise DownloadFailedError(
-            "Node.js no está disponible en el contenedor."
-        )
-
-    return node_path
 
 
 def validate_youtube_url(url: str) -> str:
@@ -89,277 +63,252 @@ def validate_youtube_url(url: str) -> str:
     return url
 
 
-def _ensure_ffmpeg_available() -> None:
+def _get_worker_url() -> str:
     """
-    Comprueba que FFmpeg esté disponible.
-    """
+    Obtiene la URL pública del worker de Windows.
 
-    if shutil.which("ffmpeg") is not None:
-        return
+    En Render debe existir:
 
-    possible_paths = (
-        "/usr/bin",
-        "/usr/local/bin",
-        "/opt/homebrew/bin",
-    )
+        WORKER_URL=https://tu-dominio-del-worker
 
-    for directory in possible_paths:
-        ffmpeg_path = Path(directory) / "ffmpeg"
-
-        if ffmpeg_path.exists():
-            os.environ["PATH"] = (
-                f"{directory}:"
-                f"{os.environ.get('PATH', '')}"
-            )
-
-            return
-
-    raise DownloadFailedError(
-        "ffmpeg no está instalado."
-    )
-
-
-def _base_ydl_options() -> dict[str, Any]:
-    """
-    Opciones centrales de yt-dlp para SONORA.
-
-    IMPORTANTE:
-
-    - No utiliza cookies.
-    - No actualiza yt-dlp durante cada petición.
-    - Utiliza Node.js para EJS.
-    - Habilita ejs:github.
-    - Utiliza bgutil HTTP en 127.0.0.1:4416.
     """
 
-    node_path = _get_node_path()
+    worker_url = os.environ.get("WORKER_URL", "").strip()
 
-    options: dict[str, Any] = {
-        # =================================================
-        # SALIDA
-        # =================================================
+    if not worker_url:
+        raise DownloadFailedError(
+            "WORKER_URL no está configurada en Render."
+        )
 
-        "quiet": False,
-        "no_warnings": False,
+    worker_url = worker_url.rstrip("/")
 
-        # =================================================
-        # FORMATO
-        # =================================================
+    if not worker_url.startswith(
+        ("http://", "https://")
+    ):
+        raise DownloadFailedError(
+            "WORKER_URL debe comenzar con http:// o https://."
+        )
 
-        "format": (
-            "bestaudio[ext=m4a]/"
-            "bestaudio[ext=webm]/"
-            "bestaudio[ext=mp4]/"
-            "bestaudio/"
-            "best"
-        ),
+    return worker_url
 
-        # =================================================
-        # REINTENTOS
-        # =================================================
 
-        "retries": 2,
-        "fragment_retries": 2,
-        "extractor_retries": 1,
+def _get_worker_token() -> str:
+    """
+    Token opcional para proteger el worker.
+    """
 
-        # =================================================
-        # RED
-        # =================================================
+    return os.environ.get(
+        "WORKER_TOKEN",
+        "",
+    ).strip()
 
-        "force_ipv4": True,
 
-        "socket_timeout": 60,
-        "connect_timeout": 60,
-        "read_timeout": 60,
+def _build_headers(
+    content_type: str = "application/json",
+) -> dict[str, str]:
+    """
+    Construye los headers para comunicarse con el worker.
+    """
 
-        "http_chunk_size": 10485760,
-
-        # Pausa pequeña entre solicitudes para reducir límites de tasa.
-        "sleep_interval_requests": 1,
-
-        # =================================================
-        # JAVASCRIPT / EJS
-        # =================================================
-        #
-        # YouTube necesita un runtime JS para los desafíos
-        # actuales.
-        #
-        # El Dockerfile de SONORA proporciona Node.js.
-        #
-        # =================================================
-
-        "js_runtimes": {
-            "node": {
-                "path": node_path,
-            },
-        },
-
-        # Permitir que yt-dlp obtenga los scripts EJS
-        # directamente desde el repositorio oficial.
-        "remote_components": {
-            "ejs:github",
-        },
-
-        # =================================================
-        # YOUTUBE + BGUTIL
-        # =================================================
-        #
-        # mweb es el cliente recomendado para este flujo.
-        #
-        # bgutil está ejecutándose dentro del mismo
-        # contenedor en:
-        #
-        # http://127.0.0.1:4416
-        #
-        # =================================================
-
-        "extractor_args": {
-            "youtube": {
-                # VisionOS fue el cliente que funcionó en la prueba local
-                # con yt-dlp 2026.08.19.
-                "player_client": [
-                    "visionos",
-                ],
-
-                # Render estaba recibiendo HTTP 429 en la petición
-                # inicial de la página de YouTube.
-                "player_skip": [
-                    "webpage",
-                    "configs",
-                ],
-
-                # La aplicación solo necesita audio.
-                "skip": [
-                    "hls",
-                    "dash",
-                    "translated_subs",
-                ],
-            },
-
-            # BGUtil queda disponible para el flujo mweb si posteriormente
-            # necesitamos volver a utilizarlo.
-            "youtubepot-bgutilhttp": {
-                "base_url": [
-                    "http://127.0.0.1:4416",
-                ],
-            },
-        },
-
-        # =================================================
-        # HEADERS
-        # =================================================
-
-        # No se falsifican headers de navegador. yt-dlp gestiona
-        # los headers apropiados para el cliente seleccionado.
-
-        # =================================================
-        # SEGURIDAD / CONEXIÓN
-        # =================================================
-
-        "suppress_http_warnings": True,
-
-        "no_check_certificate": True,
-
-        # =================================================
-        # GEO
-        # =================================================
-
-        "geo_bypass": True,
-
-        "geo_bypass_country": "CO",
-
-        # =================================================
-        # FRAGMENTOS
-        # =================================================
-
-        "skip_unavailable_fragments": True,
-
-        # =================================================
-        # FFMPEG
-        # =================================================
-
-        "prefer_ffmpeg": True,
-
-        # =================================================
-        # FORMATOS
-        # =================================================
-
-        "allow_unplayable_formats": False,
+    headers = {
+        "Content-Type": content_type,
+        "Accept": "application/json",
     }
 
-    # =====================================================
-    # PROXY OPCIONAL
-    # =====================================================
+    token = _get_worker_token()
 
-    proxy = os.environ.get(
-        "YTDLP_PROXY"
+    if token:
+        headers["Authorization"] = (
+            f"Bearer {token}"
+        )
+
+    return headers
+
+
+def _worker_request(
+    endpoint: str,
+    payload: dict[str, Any],
+    timeout: int = 300,
+) -> tuple[bytes, str]:
+    """
+    Envía una petición POST al worker.
+
+    Devuelve:
+
+        response_bytes
+        content_type
+    """
+
+    worker_url = _get_worker_url()
+
+    url = (
+        f"{worker_url.rstrip('/')}"
+        f"/{endpoint.lstrip('/')}"
     )
 
-    if proxy:
-        options["proxy"] = proxy
+    data = json.dumps(
+        payload
+    ).encode("utf-8")
 
-    return options
+    request = Request(
+        url=url,
+        data=data,
+        headers=_build_headers(),
+        method="POST",
+    )
+
+    try:
+
+        with urlopen(
+            request,
+            timeout=timeout,
+        ) as response:
+
+            body = response.read()
+
+            content_type = (
+                response.headers.get(
+                    "Content-Type",
+                    "",
+                )
+                or ""
+            )
+
+            return (
+                body,
+                content_type,
+            )
+
+    except HTTPError as exc:
+
+        try:
+            error_body = (
+                exc.read()
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            )
+        except Exception:
+            error_body = str(exc)
+
+        raise DownloadFailedError(
+            f"Worker respondió HTTP "
+            f"{exc.code}: "
+            f"{error_body[:500]}"
+        ) from exc
+
+    except URLError as exc:
+
+        raise DownloadFailedError(
+            "No se pudo conectar con el worker "
+            f"en {worker_url}. "
+            f"Detalles: {exc}"
+        ) from exc
+
+    except TimeoutError as exc:
+
+        raise DownloadFailedError(
+            "El worker tardó demasiado "
+            "en responder."
+        ) from exc
+
+    except Exception as exc:
+
+        raise DownloadFailedError(
+            f"Error comunicándose con el worker: "
+            f"{exc}"
+        ) from exc
+
+
+def _decode_json_response(
+    body: bytes,
+) -> dict[str, Any]:
+    """
+    Convierte la respuesta JSON del worker
+    en un diccionario.
+    """
+
+    try:
+
+        decoded = body.decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        data = json.loads(decoded)
+
+    except Exception as exc:
+
+        raise DownloadFailedError(
+            "El worker devolvió una respuesta "
+            "que no es JSON válido."
+        ) from exc
+
+    if not isinstance(data, dict):
+
+        raise DownloadFailedError(
+            "El worker devolvió un JSON inválido."
+        )
+
+    return data
+
+
+def _worker_info(
+    url: str,
+) -> dict[str, Any]:
+    """
+    Solicita información del vídeo al worker.
+    """
+
+    body, content_type = _worker_request(
+        endpoint="/info",
+        payload={
+            "url": url,
+        },
+        timeout=120,
+    )
+
+    if "application/json" not in content_type.lower():
+        raise DownloadFailedError(
+            "El endpoint /info del worker "
+            "no devolvió JSON."
+        )
+
+    data = _decode_json_response(
+        body
+    )
+
+    if not data.get("ok"):
+        raise DownloadFailedError(
+            str(
+                data.get(
+                    "detail",
+                    "El worker no pudo obtener "
+                    "la información del vídeo.",
+                )
+            )
+        )
+
+    return data
 
 
 def get_video_info(
     url: str,
 ) -> dict[str, Any]:
     """
-    Obtiene información básica de un vídeo de YouTube.
+    Obtiene información básica del vídeo
+    usando el worker de Windows.
     """
 
     validate_youtube_url(url)
 
-    options = _base_ydl_options()
-
-    options["skip_download"] = True
-
     try:
-        with yt_dlp.YoutubeDL(
-            options
-        ) as ydl:
 
-            info = ydl.extract_info(
-                url,
-                download=False,
-            )
+        info = _worker_info(url)
 
-    except DownloadError as exc:
-
-        message = str(exc)
-
-        if "Failed to extract any player response" in message:
-            raise DownloadFailedError(
-                "YouTube no devolvió una respuesta válida "
-                "del reproductor. El solucionador EJS o "
-                "el proveedor PO Token no pudo completar "
-                "la solicitud."
-            ) from exc
-
-        if (
-            "Sign in to confirm" in message
-            or "LOGIN_REQUIRED" in message
-            or "Please sign in" in message
-        ):
-            raise DownloadFailedError(
-                "YouTube está bloqueando esta solicitud "
-                "por una comprobación de acceso o bot."
-            ) from exc
-
-        if "HTTP Error 403" in message:
-            raise DownloadFailedError(
-                "YouTube rechazó la solicitud con HTTP 403."
-            ) from exc
-
-        if "HTTP Error 429" in message:
-            raise DownloadFailedError(
-                "YouTube bloqueó temporalmente la IP "
-                "por demasiadas solicitudes."
-            ) from exc
-
-        raise DownloadFailedError(
-            message
-        ) from exc
+    except DownloadFailedError:
+        raise
 
     except Exception as exc:
 
@@ -367,315 +316,11 @@ def get_video_info(
             str(exc)
         ) from exc
 
-    if info is None:
-        raise DownloadFailedError(
-            "No se pudo obtener información del vídeo."
-        )
-
-    from palette import (
-        attach_palette,
-        best_thumbnail_url,
-    )
-
-    return attach_palette(
-        {
-            "id": info.get("id"),
-
-            "title": info.get(
-                "title"
-            ),
-
-            "duration": info.get(
-                "duration"
-            ),
-
-            "uploader": (
-                info.get("uploader")
-                or info.get("channel")
-                or ""
-            ),
-
-            "thumbnail": best_thumbnail_url(
-                info
-            ),
-
-            "webpage_url": info.get(
-                "webpage_url",
-                url,
-            ),
-        }
-    )
-
-
-def _build_ydl_options(
-    output_template: str,
-    audio_format: str,
-    embed_thumbnail: bool,
-    progress_callback: ProgressCallback | None = None,
-) -> dict[str, Any]:
-    """
-    Construye las opciones específicas para descargar
-    y convertir el audio.
-    """
-
-    options = _base_ydl_options()
-
-    options["outtmpl"] = output_template
-
-    if progress_callback:
-
-        options["progress_hooks"] = [
-            progress_callback
-        ]
-
-    postprocessors: list[
-        dict[str, Any]
-    ] = [
-        {
-            "key": "FFmpegExtractAudio",
-
-            "preferredcodec": (
-                audio_format
-            ),
-
-            "preferredquality": "192",
-
-            "nopostoverwrites": False,
-        }
-    ]
-
-    if embed_thumbnail:
-
-        options["writethumbnail"] = True
-
-        postprocessors.append(
-            {
-                "key": "FFmpegMetadata",
-
-                "add_metadata": True,
-            }
-        )
-
-        postprocessors.append(
-            {
-                "key": "EmbedThumbnail",
-
-                "already_have_thumbnail": False,
-            }
-        )
-
-    options["postprocessors"] = (
-        postprocessors
-    )
-
-    return options
-
-
-def _run_yt_dlp(
-    output_template: str,
-    url: str,
-    audio_format: str,
-    embed_thumbnail: bool,
-    progress_callback: ProgressCallback | None = None,
-):
-    """
-    Ejecuta yt-dlp.
-    """
-
-    options = _build_ydl_options(
-        output_template=output_template,
-
-        audio_format=audio_format,
-
-        embed_thumbnail=embed_thumbnail,
-
-        progress_callback=progress_callback,
-    )
-
-    with yt_dlp.YoutubeDL(
-        options
-    ) as ydl:
-
-        return ydl.extract_info(
-            url,
-            download=True,
-        )
-
-
-def download_audio(
-    url: str,
-    audio_format: str = "mp3",
-    progress_callback: ProgressCallback | None = None,
-) -> tuple[Path, str, str]:
-    """
-    Descarga el audio de YouTube y lo convierte
-    al formato solicitado.
-    """
-
-    validate_youtube_url(url)
-
-    audio_format = audio_format.lower()
-
-    if audio_format not in SUPPORTED_FORMATS:
-
-        raise ValueError(
-            f"Formato no soportado: "
-            f"{audio_format}. "
-            f"Usa uno de: "
-            f"{', '.join(sorted(SUPPORTED_FORMATS))}"
-        )
-
-    _ensure_ffmpeg_available()
-
-    embed_thumbnail = (
-        audio_format
-        in THUMBNAIL_EMBED_FORMATS
-    )
-
-    temp_dir = Path(
-        tempfile.mkdtemp(
-            prefix="yt-audio-"
-        )
-    )
-
-    output_template = str(
-        temp_dir
-        / "%(title)s.%(ext)s"
-    )
-
-    try:
-
-        info = _run_yt_dlp(
-            output_template=output_template,
-
-            url=url,
-
-            audio_format=audio_format,
-
-            embed_thumbnail=embed_thumbnail,
-
-            progress_callback=progress_callback,
-        )
-
-    except DownloadError as exc:
-
-        shutil.rmtree(
-            temp_dir,
-            ignore_errors=True,
-        )
-
-        message = str(exc)
-
-        # =================================================
-        # PLAYER RESPONSE
-        # =================================================
-
-        if (
-            "Failed to extract any player response"
-            in message
-        ):
-
-            raise DownloadFailedError(
-                "YouTube no devolvió una respuesta "
-                "válida del reproductor. "
-                "El solucionador EJS o el proveedor "
-                "PO Token no pudo completar la solicitud."
-            ) from exc
-
-        # =================================================
-        # BOT / LOGIN
-        # =================================================
-
-        if (
-            "Sign in to confirm"
-            in message
-            or "LOGIN_REQUIRED"
-            in message
-            or "Please sign in"
-            in message
-        ):
-
-            raise DownloadFailedError(
-                "YouTube está bloqueando esta solicitud "
-                "con una comprobación de bot o acceso."
-            ) from exc
-
-        # =================================================
-        # HTTP 403
-        # =================================================
-
-        if "HTTP Error 403" in message:
-
-            raise DownloadFailedError(
-                "YouTube rechazó la descarga con HTTP 403."
-            ) from exc
-
-        # =================================================
-        # HTTP 429
-        # =================================================
-
-        if "HTTP Error 429" in message:
-
-            raise DownloadFailedError(
-                "Demasiadas solicitudes. "
-                "YouTube bloqueó temporalmente la IP."
-            ) from exc
-
-        # =================================================
-        # FORMATO
-        # =================================================
-
-        if (
-            "Requested format is not available"
-            in message
-        ):
-
-            raise DownloadFailedError(
-                "El formato de audio no está disponible "
-                "para este vídeo."
-            ) from exc
-
-        # =================================================
-        # OTROS ERRORES
-        # =================================================
-
-        if (
-            "Unable to extract"
-            in message
-            or "ERROR"
-            in message
-        ):
-
-            raise DownloadFailedError(
-                "No se pudo extraer la información "
-                "del vídeo. "
-                f"Detalles: {message[:300]}"
-            ) from exc
+    if not info:
 
         raise DownloadFailedError(
-            message
-        ) from exc
-
-    except Exception as exc:
-
-        shutil.rmtree(
-            temp_dir,
-            ignore_errors=True,
-        )
-
-        raise DownloadFailedError(
-            str(exc)
-        ) from exc
-
-    if info is None:
-
-        shutil.rmtree(
-            temp_dir,
-            ignore_errors=True,
-        )
-
-        raise DownloadFailedError(
-            "No se pudo descargar el audio."
+            "El worker no devolvió información "
+            "del vídeo."
         )
 
     title = (
@@ -689,13 +334,220 @@ def download_audio(
         or ""
     )
 
-    downloaded_files = list(
-        temp_dir.glob(
-            f"*.{audio_format}"
+    thumbnail = info.get(
+        "thumbnail"
+    )
+
+    # Intentamos conservar la lógica de
+    # paleta/miniatura existente.
+    try:
+
+        from palette import (
+            attach_palette,
+            best_thumbnail_url,
+        )
+
+        normalized = {
+            "id": info.get("id"),
+            "title": title,
+            "duration": info.get(
+                "duration"
+            ),
+            "uploader": uploader,
+            "thumbnail": (
+                best_thumbnail_url(info)
+                if thumbnail
+                else None
+            ),
+            "webpage_url": (
+                info.get("webpage_url")
+                or url
+            ),
+        }
+
+        return attach_palette(
+            normalized
+        )
+
+    except Exception:
+
+        return {
+            "id": info.get("id"),
+            "title": title,
+            "duration": info.get(
+                "duration"
+            ),
+            "uploader": uploader,
+            "thumbnail": thumbnail,
+            "webpage_url": (
+                info.get("webpage_url")
+                or url
+            ),
+        }
+
+
+def download_audio(
+    url: str,
+    audio_format: str = "mp3",
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[Path, str, str]:
+    """
+    Descarga el audio utilizando el worker
+    que está ejecutándose en Windows.
+
+    Render NO ejecuta yt-dlp directamente.
+
+    El flujo es:
+
+        Render
+          ↓
+        WORKER_URL
+          ↓
+        worker.py
+          ↓
+        yt-dlp en Windows
+    """
+
+    validate_youtube_url(url)
+
+    audio_format = (
+        audio_format
+        .lower()
+        .strip()
+    )
+
+    if audio_format not in SUPPORTED_FORMATS:
+
+        raise ValueError(
+            f"Formato no soportado: "
+            f"{audio_format}. "
+            f"Usa uno de: "
+            f"{', '.join(sorted(SUPPORTED_FORMATS))}"
+        )
+
+    # Primero obtenemos información para
+    # conservar título y canal.
+    info = _worker_info(url)
+
+    title = (
+        info.get("title")
+        or "audio"
+    )
+
+    uploader = (
+        info.get("uploader")
+        or info.get("channel")
+        or ""
+    )
+
+    # Creamos un directorio temporal
+    # donde Render guardará el archivo
+    # recibido desde Windows.
+    temp_dir = Path(
+        tempfile.mkdtemp(
+            prefix="yt-audio-worker-"
         )
     )
 
-    if not downloaded_files:
+    try:
+
+        body, content_type = _worker_request(
+            endpoint="/download",
+            payload={
+                "url": url,
+                "format": audio_format,
+            },
+            timeout=600,
+        )
+
+        # El worker devuelve el archivo directamente.
+        #
+        # Si devuelve JSON, significa que ocurrió
+        # un error.
+        if "application/json" in content_type.lower():
+
+            try:
+
+                error_data = _decode_json_response(
+                    body
+                )
+
+                detail = error_data.get(
+                    "detail",
+                    "El worker no pudo descargar el audio.",
+                )
+
+            except Exception:
+
+                detail = (
+                    body.decode(
+                        "utf-8",
+                        errors="replace",
+                    )[:500]
+                )
+
+            raise DownloadFailedError(
+                str(detail)
+            )
+
+        output_file = (
+            temp_dir
+            / f"audio.{audio_format}"
+        )
+
+        output_file.write_bytes(
+            body
+        )
+
+        if not output_file.exists():
+
+            raise DownloadFailedError(
+                "El worker respondió correctamente "
+                "pero no se pudo guardar el audio."
+            )
+
+        if output_file.stat().st_size == 0:
+
+            raise DownloadFailedError(
+                "El worker devolvió un archivo de "
+                "audio vacío."
+            )
+
+        # Informamos al callback, si existe.
+        if progress_callback:
+
+            try:
+
+                progress_callback(
+                    {
+                        "status": "finished",
+                        "filename": str(
+                            output_file
+                        ),
+                        "title": title,
+                        "uploader": uploader,
+                    }
+                )
+
+            except Exception:
+                pass
+
+        return (
+            output_file,
+            title,
+            uploader,
+        )
+
+    except DownloadFailedError:
+
+        shutil.rmtree(
+            temp_dir,
+            ignore_errors=True,
+        )
+
+        raise
+
+    except Exception as exc:
 
         shutil.rmtree(
             temp_dir,
@@ -703,12 +555,5 @@ def download_audio(
         )
 
         raise DownloadFailedError(
-            "La descarga terminó pero "
-            "no se encontró el archivo de audio."
-        )
-
-    return (
-        downloaded_files[0],
-        title,
-        uploader,
-    )
+            str(exc)
+        ) from exc
