@@ -43,10 +43,6 @@
 
   let downloadController = null;
 
-  /*
-   * Lista local de canciones descargadas durante
-   * esta sesión de la página.
-   */
   let downloadedSongs = [];
 
   let currentUrl = '';
@@ -484,12 +480,6 @@
   function openDownloadModal() {
     downloadOverlay.hidden = false;
 
-    /*
-     * Importante:
-     * Ya NO usamos la portada aquí.
-     * Tampoco modificamos el fondo de la página.
-     */
-
     document.body.classList.remove(
       'download-open'
     );
@@ -531,9 +521,6 @@
       safePercent = 1;
     }
 
-    /*
-     * Evitamos que visualmente se quede en 0%.
-     */
     if (
       safePercent > 0 &&
       safePercent < 1
@@ -647,10 +634,6 @@
         new Date(),
     });
 
-    /*
-     * Evitamos que la lista crezca
-     * indefinidamente.
-     */
     if (
       downloadedSongs.length > 20
     ) {
@@ -671,11 +654,6 @@
     const container =
       findDownloadListContainer();
 
-    /*
-     * Si el HTML todavía no tiene el
-     * contenedor, no hacemos nada.
-     * El resto de la descarga sigue funcionando.
-     */
     if (!container) {
       return;
     }
@@ -1450,10 +1428,6 @@
               )
             : '';
 
-        /*
-         * Si el backend no envía nombre,
-         * usamos canción + artista.
-         */
         if (!filename) {
           filename =
             `${sanitizeFilename(
@@ -1479,10 +1453,6 @@
         const startTime =
           performance.now();
 
-        /*
-         * Mostramos inmediatamente
-         * que la descarga comenzó.
-         */
         updateDownloadProgress(
           total > 0
             ? 1
@@ -1591,10 +1561,6 @@
           objectUrl
         );
 
-        /*
-         * Agregar canción a la lista
-         * de descargas.
-         */
         addDownloadedSong(
           title,
           artist,
@@ -1607,9 +1573,6 @@
         downloadStatus.hidden =
           false;
 
-        /*
-         * Cerramos rápido la ventana.
-         */
         setTimeout(
           () => {
             closeDownloadModal();
@@ -1679,11 +1642,8 @@
       .slice(0, 150);
   }
 
-  /*
-   * Intentamos mostrar la lista si el HTML
-   * ya tiene el contenedor.
-   */
   renderDownloadedSongs();
+
   /* =========================================
      MOVIMIENTO DE LA VENTANA DE DESCARGA
      SIGUIENDO EL CURSOR
@@ -1712,13 +1672,6 @@
           event.clientY /
           window.innerHeight;
 
-
-        /*
-         * Movimiento máximo:
-         * 12px horizontal
-         * 8px vertical
-         */
-
         targetX =
           (mouseX - 0.5) * 24;
 
@@ -1728,7 +1681,6 @@
       }
     );
 
-
     function animateDownloadWindow() {
 
       currentX +=
@@ -1736,7 +1688,6 @@
 
       currentY +=
         (targetY - currentY) * 0.08;
-
 
       downloadOverlay.style.setProperty(
         '--download-move-x',
@@ -1748,15 +1699,12 @@
         `${currentY.toFixed(2)}px`
       );
 
-
       requestAnimationFrame(
         animateDownloadWindow
       );
     }
 
-
     animateDownloadWindow();
 
   }
 })();
-app.js
