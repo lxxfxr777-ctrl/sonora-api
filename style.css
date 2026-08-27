@@ -1729,30 +1729,53 @@ body {
   }
 }
 /* =========================================================
-   AJUSTE FINAL — PANTALLAS GRANDES
-   SOLO DESDE 721px
+   SONORA — AJUSTE FINAL PARA PANTALLAS GRANDES
+   =========================================================
+   SOLO AFECTA PANTALLAS DE 721px EN ADELANTE.
+   CELULARES Y TABLETS SE MANTIENEN SIN CAMBIOS.
    ========================================================= */
 
 @media (min-width: 721px) {
 
+  /* ---------------------------------------------------------
+     CONTENEDOR PRINCIPAL
+     --------------------------------------------------------- */
+
   .page {
-    width: min(760px, calc(100% - 40px));
-    max-width: 760px;
+    width: min(820px, calc(100% - 40px));
+    max-width: 820px;
     margin-left: auto;
     margin-right: auto;
   }
 
+
+  /* ---------------------------------------------------------
+     BLOQUE DE PORTADA + INFORMACIÓN
+     --------------------------------------------------------- */
+
   .preview {
     width: 100%;
-    grid-template-columns: 220px 1fr;
-    gap: 20px;
+    max-width: 820px;
+
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 22px;
+
     align-items: center;
+    margin-left: auto;
+    margin-right: auto;
   }
 
+
+  /* ---------------------------------------------------------
+     PORTADA
+     --------------------------------------------------------- */
+
   .cover-stage {
-    width: 220px;
-    max-width: 220px;
-    margin: 0;
+    width: 250px;
+    max-width: 250px;
+
+    margin: 0 auto;
+
     aspect-ratio: 1 / 1;
   }
 
@@ -1762,17 +1785,81 @@ body {
     height: 100%;
   }
 
-  .player-panel {
-    width: 100%;
-    grid-column: 1 / -1;
-  }
 
-  .link-panel {
-    width: 100%;
-  }
+  /* ---------------------------------------------------------
+     CUADRO DE INFORMACIÓN DE LA CANCIÓN
+     --------------------------------------------------------- */
 
   .track-panel {
     width: 100%;
     min-width: 0;
+    max-width: none;
+
+    padding: 24px;
+  }
+
+
+  /* ---------------------------------------------------------
+     TÍTULO
+     --------------------------------------------------------- */
+
+  .track-title {
+    font-size: clamp(1.8rem, 3vw, 2.25rem);
+  }
+
+
+  /* ---------------------------------------------------------
+     ESTADÍSTICAS
+     --------------------------------------------------------- */
+
+  .track-stats {
+    width: 100%;
+    grid-template-columns: 1fr 1fr;
+  }
+
+
+  /* ---------------------------------------------------------
+     BOTONES DE FORMATO
+     --------------------------------------------------------- */
+
+  .format-chips {
+    width: 100%;
+  }
+
+
+  /* ---------------------------------------------------------
+     BOTÓN DESCARGAR
+     --------------------------------------------------------- */
+
+  .btn-download {
+    width: 100%;
+  }
+
+
+  /* ---------------------------------------------------------
+     PANEL DEL ENLACE
+     --------------------------------------------------------- */
+
+  .link-panel {
+    width: 100%;
+    max-width: 820px;
+
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+
+  /* ---------------------------------------------------------
+     REPRODUCTOR
+     --------------------------------------------------------- */
+
+  .player-panel {
+    width: 100%;
+    max-width: 820px;
+
+    grid-column: 1 / -1;
+
+    margin-left: auto;
+    margin-right: auto;
   }
 }
