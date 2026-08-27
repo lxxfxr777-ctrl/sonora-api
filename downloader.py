@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 import os
 import shutil
@@ -8,8 +7,8 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-
-import yt_dlp
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 SUPPORTED_FORMATS = {
@@ -32,7 +31,6 @@ class DownloadFailedError(RuntimeError):
 
 def validate_youtube_url(url: str) -> str:
     url = url.strip()
-
     if not url:
         raise InvalidYouTubeURLError("La URL no puede estar vacía.")
 
@@ -56,135 +54,134 @@ def validate_youtube_url(url: str) -> str:
     return url
 
 
-def _get_cookie_file() -> str | None:
-    """Return a usable cookies.txt path, if one is configured."""
-    candidates = []
+def _get_worker_url() -> str:
+    worker_url = os.environ.get("WORKER_URL", "").strip()
+    if not worker_url:
+        raise DownloadFailedError("WORKER_URL no está configurada en Render.")
 
-    configured = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
-    if configured:
-        candidates.append(Path(configured))
-
-    # The upload endpoint in main.py stores cookies here.
-    candidates.append(Path("/app/cookies.txt"))
-
-    for path in candidates:
-        if path.is_file():
-            return str(path)
-
-    # Render environment variables survive container recreation and are useful
-    # when cookies.txt itself is not persisted on the container filesystem.
-    b64 = os.environ.get("YTDLP_COOKIES_B64", "").strip()
-    if b64:
-        target = Path("/tmp/sonora-cookies-env.txt")
-        try:
-            target.write_bytes(base64.b64decode(b64, validate=True))
-            target.chmod(0o600)
-            if target.is_file() and target.stat().st_size:
-                return str(target)
-        except Exception:
-            pass
-
-    raw = os.environ.get("YTDLP_COOKIES")
-    if raw:
-        target = Path("/tmp/sonora-cookies-raw.txt")
-        try:
-            target.write_text(raw, encoding="utf-8")
-            target.chmod(0o600)
-            if target.is_file() and target.stat().st_size:
-                return str(target)
-        except Exception:
-            pass
-
-    return None
+    worker_url = worker_url.rstrip("/")
+    if not worker_url.startswith(("http://", "https://")):
+        raise DownloadFailedError(
+            "WORKER_URL debe comenzar con http:// o https://."
+        )
+    return worker_url
 
 
-def _base_ydl_options() -> dict[str, Any]:
-    options: dict[str, Any] = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "retries": 3,
-        # The Docker image starts the matching bgutil HTTP provider on 4416.
-        "extractor_args": {
-            "youtubepot-bgutilhttp": {
-                "base_url": "http://127.0.0.1:4416",
-            },
-        },
+def _get_worker_token() -> str:
+    return os.environ.get("WORKER_TOKEN", "").strip()
+
+
+def _build_headers(content_type: str = "application/json") -> dict[str, str]:
+    headers = {
+        "Content-Type": content_type,
+        "Accept": "application/json",
     }
-
-    cookie_file = _get_cookie_file()
-    if cookie_file:
-        options["cookiefile"] = cookie_file
-
-    return options
+    token = _get_worker_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
-def _clean_info(info: dict[str, Any], fallback_url: str) -> dict[str, Any]:
-    return {
-        "id": info.get("id"),
-        "title": info.get("title") or "audio",
-        "duration": info.get("duration"),
-        "uploader": info.get("uploader") or info.get("channel") or "",
-        "thumbnail": info.get("thumbnail"),
-        "webpage_url": info.get("webpage_url") or fallback_url,
-    }
-
-
-def _extract_info(url: str) -> dict[str, Any]:
-    options = _base_ydl_options()
-    options.update({
-        "skip_download": True,
-    })
+def _worker_request(
+    endpoint: str,
+    payload: dict[str, Any],
+    timeout: int = 300,
+) -> tuple[bytes, str]:
+    worker_url = _get_worker_url()
+    url = f"{worker_url.rstrip('/')}/{endpoint.lstrip('/')}"
+    data = json.dumps(payload).encode("utf-8")
+    request = Request(
+        url=url,
+        data=data,
+        headers=_build_headers(),
+        method="POST",
+    )
 
     try:
-        with yt_dlp.YoutubeDL(options) as ydl:
-            info = ydl.extract_info(url, download=False)
-    except yt_dlp.utils.DownloadError as exc:
-        raise DownloadFailedError(f"yt-dlp no pudo obtener la información: {exc}") from exc
+        with urlopen(request, timeout=timeout) as response:
+            body = response.read()
+            content_type = response.headers.get("Content-Type", "") or ""
+            return body, content_type
+    except HTTPError as exc:
+        try:
+            error_body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            error_body = str(exc)
+        raise DownloadFailedError(
+            f"Worker respondió HTTP {exc.code}: {error_body[:500]}"
+        ) from exc
+    except URLError as exc:
+        raise DownloadFailedError(
+            f"No se pudo conectar con el worker en {worker_url}. Detalles: {exc}"
+        ) from exc
+    except TimeoutError as exc:
+        raise DownloadFailedError("El worker tardó demasiado en responder.") from exc
     except Exception as exc:
-        raise DownloadFailedError(f"Error obteniendo información de YouTube: {exc}") from exc
+        raise DownloadFailedError(
+            f"Error comunicándose con el worker: {exc}"
+        ) from exc
 
-    if not isinstance(info, dict):
-        raise DownloadFailedError("yt-dlp no devolvió información válida del vídeo.")
 
-    return info
+def _decode_json_response(body: bytes) -> dict[str, Any]:
+    try:
+        data = json.loads(body.decode("utf-8", errors="replace"))
+    except Exception as exc:
+        raise DownloadFailedError(
+            "El worker devolvió una respuesta que no es JSON válido."
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise DownloadFailedError("El worker devolvió un JSON inválido.")
+    return data
+
+
+def _worker_info(url: str) -> dict[str, Any]:
+    body, content_type = _worker_request(
+        endpoint="/info",
+        payload={"url": url},
+        timeout=120,
+    )
+
+    if "application/json" not in content_type.lower():
+        raise DownloadFailedError("El endpoint /info del worker no devolvió JSON.")
+
+    data = _decode_json_response(body)
+    if not data.get("ok"):
+        raise DownloadFailedError(
+            str(data.get("detail", "El worker no pudo obtener la información del vídeo."))
+        )
+    return data
 
 
 def get_video_info(url: str) -> dict[str, Any]:
     validate_youtube_url(url)
-    info = _extract_info(url)
+    info = _worker_info(url)
 
-    cleaned = _clean_info(info, url)
+    title = info.get("title") or "audio"
+    uploader = info.get("uploader") or info.get("channel") or ""
+    thumbnail = info.get("thumbnail")
 
-    # Preserve the existing palette/thumbnail processing used by the frontend.
     try:
         from palette import attach_palette, best_thumbnail_url
 
-        if cleaned.get("thumbnail"):
-            cleaned["thumbnail"] = best_thumbnail_url(cleaned)
-        return attach_palette(cleaned)
+        normalized = {
+            "id": info.get("id"),
+            "title": title,
+            "duration": info.get("duration"),
+            "uploader": uploader,
+            "thumbnail": best_thumbnail_url(info) if thumbnail else None,
+            "webpage_url": info.get("webpage_url") or url,
+        }
+        return attach_palette(normalized)
     except Exception:
-        return cleaned
-
-
-def _find_downloaded_file(temp_dir: Path, audio_format: str) -> Path | None:
-    preferred = list(temp_dir.rglob(f"*.{audio_format}"))
-    preferred = [
-        path for path in preferred
-        if path.is_file() and not path.name.endswith((".part", ".ytdl"))
-    ]
-    if preferred:
-        return max(preferred, key=lambda path: path.stat().st_mtime)
-
-    candidates = [
-        path for path in temp_dir.rglob("*")
-        if path.is_file()
-        and not path.name.endswith((".part", ".ytdl"))
-    ]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+        return {
+            "id": info.get("id"),
+            "title": title,
+            "duration": info.get("duration"),
+            "uploader": uploader,
+            "thumbnail": thumbnail,
+            "webpage_url": info.get("webpage_url") or url,
+        }
 
 
 def download_audio(
@@ -192,7 +189,6 @@ def download_audio(
     audio_format: str = "mp3",
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[Path, str, str]:
-    """Download and convert YouTube audio directly inside the Render container."""
     validate_youtube_url(url)
 
     audio_format = audio_format.lower().strip()
@@ -202,40 +198,39 @@ def download_audio(
             f"Usa uno de: {', '.join(sorted(SUPPORTED_FORMATS))}"
         )
 
-    info = _extract_info(url)
+    info = _worker_info(url)
     title = info.get("title") or "audio"
     uploader = info.get("uploader") or info.get("channel") or ""
-
-    temp_dir = Path(tempfile.mkdtemp(prefix="yt-audio-render-"))
-
-    options = _base_ydl_options()
-    options.update({
-        "format": "bestaudio/best",
-        "outtmpl": str(temp_dir / "%(title)s.%(ext)s"),
-        "restrictfilenames": True,
-        "windowsfilenames": True,
-        "noplaylist": True,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": audio_format,
-                "preferredquality": "192",
-            }
-        ],
-    })
+    temp_dir = Path(tempfile.mkdtemp(prefix="yt-audio-worker-"))
 
     try:
-        with yt_dlp.YoutubeDL(options) as ydl:
-            ydl.download([url])
+        body, content_type = _worker_request(
+            endpoint="/download",
+            payload={"url": url, "format": audio_format},
+            timeout=600,
+        )
 
-        output_file = _find_downloaded_file(temp_dir, audio_format)
-        if output_file is None:
+        if "application/json" in content_type.lower():
+            try:
+                error_data = _decode_json_response(body)
+                detail = error_data.get(
+                    "detail",
+                    "El worker no pudo descargar el audio.",
+                )
+            except Exception:
+                detail = body.decode("utf-8", errors="replace")[:500]
+            raise DownloadFailedError(str(detail))
+
+        output_file = temp_dir / f"audio.{audio_format}"
+        output_file.write_bytes(body)
+
+        if not output_file.exists():
             raise DownloadFailedError(
-                "yt-dlp terminó sin producir un archivo de audio."
+                "El worker respondió correctamente pero no se pudo guardar el audio."
             )
 
         if output_file.stat().st_size == 0:
-            raise DownloadFailedError("El archivo de audio generado está vacío.")
+            raise DownloadFailedError("El worker devolvió un archivo de audio vacío.")
 
         if progress_callback:
             try:
@@ -253,9 +248,6 @@ def download_audio(
     except DownloadFailedError:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
-    except yt_dlp.utils.DownloadError as exc:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise DownloadFailedError(f"yt-dlp no pudo descargar el audio: {exc}") from exc
     except Exception as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        raise DownloadFailedError(f"Error descargando el audio: {exc}") from exc
+        raise DownloadFailedError(str(exc)) from exc
