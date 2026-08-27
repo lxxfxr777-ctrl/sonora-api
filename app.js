@@ -1,3 +1,4 @@
+```javascript
 (() => {
   const form = document.getElementById('search-form');
   const urlInput = document.getElementById('url-input');
@@ -29,24 +30,535 @@
   const playerStatus = document.getElementById('player-status');
 
   /* =========================================================
+     RESPONSIVE / ESTABILIDAD VISUAL
+     ========================================================= */
+
+  function installResponsiveLayout() {
+    if (document.getElementById('app-responsive-fix')) {
+      return;
+    }
+
+    const style = document.createElement('style');
+
+    style.id = 'app-responsive-fix';
+
+    style.textContent = `
+      /* =====================================================
+         ESTABILIDAD GENERAL
+         ===================================================== */
+
+      html {
+        width: 100%;
+        min-width: 0;
+        overflow-x: hidden;
+        scrollbar-gutter: stable;
+      }
+
+      body {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: hidden;
+        box-sizing: border-box;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      img,
+      video,
+      iframe,
+      canvas {
+        max-width: 100%;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        max-width: 100%;
+      }
+
+      /* =====================================================
+         CONTENEDORES
+         ===================================================== */
+
+      .container,
+      .page,
+      .main,
+      main,
+      .app,
+      .app-container,
+      .content,
+      .main-content {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      /* =====================================================
+         FORMULARIO DE BÚSQUEDA
+         ===================================================== */
+
+      #search-form {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      #url-input {
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      #search-btn {
+        flex-shrink: 0;
+      }
+
+      /* =====================================================
+         VISTA PREVIA
+         ===================================================== */
+
+      #preview {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+      }
+
+      #preview:not([hidden]) {
+        width: 100%;
+        max-width: 100%;
+      }
+
+      #preview-thumb {
+        display: block;
+        max-width: 100%;
+        width: 100%;
+        height: auto;
+        object-fit: cover;
+      }
+
+      .preview,
+      .preview-card,
+      .preview-content,
+      .preview-info,
+      .preview-details,
+      .player-panel,
+      .download-panel,
+      .cover-stage {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      /* =====================================================
+         TEXTOS LARGOS
+         ===================================================== */
+
+      #preview-title,
+      #preview-artist,
+      #player-now,
+      #player-status,
+      #download-modal-title,
+      .download-history-info,
+      .download-history-info strong,
+      .download-history-info span {
+        min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      #preview-title,
+      #preview-artist,
+      #player-now {
+        text-overflow: ellipsis;
+      }
+
+      /* =====================================================
+         PLAYER
+         ===================================================== */
+
+      .player-panel {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .cover-stage {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+      }
+
+      #yt-player {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        max-width: 1px !important;
+        max-height: 1px !important;
+        overflow: hidden !important;
+        pointer-events: none !important;
+      }
+
+      #seek-bar {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      /* =====================================================
+         MODAL DE DESCARGA
+         ===================================================== */
+
+      #download-overlay {
+        width: 100vw;
+        max-width: 100vw;
+        overflow: hidden;
+        padding:
+          max(16px, env(safe-area-inset-top))
+          max(16px, env(safe-area-inset-right))
+          max(16px, env(safe-area-inset-bottom))
+          max(16px, env(safe-area-inset-left));
+      }
+
+      #download-overlay > *,
+      .download-modal,
+      .download-window,
+      .download-dialog {
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      #download-progress-bar {
+        max-width: 100%;
+      }
+
+      /* =====================================================
+         TABLET
+         ===================================================== */
+
+      @media (max-width: 900px) {
+        body {
+          width: 100%;
+          max-width: 100vw;
+        }
+
+        #preview {
+          width: 100%;
+        }
+
+        .cover-stage {
+          width: 100%;
+        }
+      }
+
+      /* =====================================================
+         CELULARES
+         ===================================================== */
+
+      @media (max-width: 700px) {
+        html,
+        body {
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+
+        #search-form {
+          width: 100%;
+          max-width: 100%;
+        }
+
+        #preview {
+          width: 100%;
+          max-width: 100%;
+          margin-left: 0;
+          margin-right: 0;
+        }
+
+        .preview,
+        .preview-card,
+        .player-panel,
+        .download-panel {
+          width: 100%;
+          max-width: 100%;
+        }
+
+        .cover-stage {
+          width: 100%;
+          max-width: 100%;
+          margin-left: auto;
+          margin-right: auto;
+        }
+
+        #preview-title {
+          font-size: clamp(
+            16px,
+            4.5vw,
+            22px
+          );
+          line-height: 1.2;
+        }
+
+        #preview-artist {
+          font-size: clamp(
+            13px,
+            3.7vw,
+            17px
+          );
+        }
+
+        #player-now {
+          font-size: clamp(
+            13px,
+            3.6vw,
+            16px
+          );
+        }
+
+        #download-modal-title {
+          font-size: clamp(
+            15px,
+            4vw,
+            20px
+          );
+          line-height: 1.25;
+        }
+
+        #download-overlay {
+          align-items: center;
+          justify-content: center;
+        }
+
+        #download-overlay .download-modal,
+        #download-overlay .download-window,
+        #download-overlay .download-dialog {
+          width: min(
+            100%,
+            calc(100vw - 24px)
+          );
+          max-width: calc(100vw - 24px);
+          margin-left: auto;
+          margin-right: auto;
+        }
+
+        .download-history-item {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+        }
+
+        .download-history-info {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+      }
+
+      /* =====================================================
+         CELULARES MUY PEQUEÑOS
+         ===================================================== */
+
+      @media (max-width: 420px) {
+        #preview-title {
+          font-size: clamp(
+            15px,
+            5vw,
+            19px
+          );
+        }
+
+        #preview-artist {
+          font-size: clamp(
+            12px,
+            4vw,
+            15px
+          );
+        }
+
+        #search-btn {
+          min-width: 0;
+        }
+
+        #download-overlay .download-modal,
+        #download-overlay .download-window,
+        #download-overlay .download-dialog {
+          width: calc(100vw - 20px);
+          max-width: calc(100vw - 20px);
+        }
+      }
+
+      /* =====================================================
+         PANTALLAS MUY ALTAS / MÓVILES CON SAFE AREA
+         ===================================================== */
+
+      @supports (height: 100dvh) {
+        #download-overlay {
+          min-height: 100dvh;
+        }
+      }
+
+      /* =====================================================
+         EVITAR QUE EL CAMBIO DE CONTENIDO MODIFIQUE
+         EL ANCHO DEL DOCUMENTO
+         ===================================================== */
+
+      body.app-has-preview {
+        overflow-x: hidden;
+        scrollbar-gutter: stable;
+      }
+
+      body.app-has-preview #preview {
+        contain: layout;
+      }
+    `;
+
+    document.head.appendChild(style);
+  }
+
+  function updateResponsiveViewport() {
+    const root = document.documentElement;
+
+    const width =
+      window.visualViewport
+        ? window.visualViewport.width
+        : window.innerWidth;
+
+    const height =
+      window.visualViewport
+        ? window.visualViewport.height
+        : window.innerHeight;
+
+    root.style.setProperty(
+      '--app-vw',
+      `${Math.round(width)}px`
+    );
+
+    root.style.setProperty(
+      '--app-vh',
+      `${Math.round(height)}px`
+    );
+
+    root.style.setProperty(
+      '--app-width',
+      `${Math.round(width)}px`
+    );
+
+    root.style.setProperty(
+      '--app-height',
+      `${Math.round(height)}px`
+    );
+  }
+
+  function stabilizePreviewLayout() {
+    document.body.classList.add(
+      'app-has-preview'
+    );
+
+    updateResponsiveViewport();
+
+    /*
+     * Forzamos al navegador a recalcular el layout
+     * después de mostrar la vista previa.
+     */
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        updateResponsiveViewport();
+      });
+    });
+  }
+
+  installResponsiveLayout();
+  updateResponsiveViewport();
+
+  window.addEventListener(
+    'resize',
+    updateResponsiveViewport,
+    {
+      passive: true,
+    }
+  );
+
+  window.addEventListener(
+    'orientationchange',
+    () => {
+      setTimeout(
+        updateResponsiveViewport,
+        150
+      );
+
+      setTimeout(
+        updateResponsiveViewport,
+        500
+      );
+    },
+    {
+      passive: true,
+    }
+  );
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener(
+      'resize',
+      updateResponsiveViewport,
+      {
+        passive: true,
+      }
+    );
+  }
+
+  /* =========================================================
      VENTANA DE DESCARGA
      ========================================================= */
 
-  const downloadOverlay = document.getElementById('download-overlay');
-  const downloadModalTitle = document.getElementById('download-modal-title');
-  const downloadPercent = document.getElementById('download-percent');
-  const downloadSize = document.getElementById('download-size');
-  const downloadProgressBar = document.getElementById('download-progress-bar');
-  const downloadSpeed = document.getElementById('download-speed');
-  const downloadEta = document.getElementById('download-eta');
-  const cancelDownloadBtn = document.getElementById('cancel-download-btn');
+  const downloadOverlay =
+    document.getElementById(
+      'download-overlay'
+    );
+
+  const downloadModalTitle =
+    document.getElementById(
+      'download-modal-title'
+    );
+
+  const downloadPercent =
+    document.getElementById(
+      'download-percent'
+    );
+
+  const downloadSize =
+    document.getElementById(
+      'download-size'
+    );
+
+  const downloadProgressBar =
+    document.getElementById(
+      'download-progress-bar'
+    );
+
+  const downloadSpeed =
+    document.getElementById(
+      'download-speed'
+    );
+
+  const downloadEta =
+    document.getElementById(
+      'download-eta'
+    );
+
+  const cancelDownloadBtn =
+    document.getElementById(
+      'cancel-download-btn'
+    );
 
   let downloadController = null;
 
-  /*
-   * Lista local de canciones descargadas durante
-   * esta sesión de la página.
-   */
   let downloadedSongs = [];
 
   let currentUrl = '';
@@ -100,17 +612,37 @@
   };
 
   function formatDuration(seconds) {
-    if (seconds === null || seconds === undefined) return '—';
-
-    const total = Math.round(Number(seconds));
-
-    if (!Number.isFinite(total) || total < 0) {
+    if (
+      seconds === null ||
+      seconds === undefined
+    ) {
       return '—';
     }
 
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const secs = total % 60;
+    const total =
+      Math.round(
+        Number(seconds)
+      );
+
+    if (
+      !Number.isFinite(total) ||
+      total < 0
+    ) {
+      return '—';
+    }
+
+    const hours =
+      Math.floor(
+        total / 3600
+      );
+
+    const minutes =
+      Math.floor(
+        (total % 3600) / 60
+      );
+
+    const secs =
+      total % 60;
 
     if (hours > 0) {
       return `${hours}:${minutes
@@ -120,38 +652,75 @@
         .padStart(2, '0')}`;
     }
 
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    return `${minutes}:${secs
+      .toString()
+      .padStart(2, '0')}`;
   }
 
-  function clamp(value, min = 0, max = 1) {
-    return Math.min(max, Math.max(min, value));
+  function clamp(
+    value,
+    min = 0,
+    max = 1
+  ) {
+    return Math.min(
+      max,
+      Math.max(min, value)
+    );
   }
 
-  function rgbToHex(r, g, b) {
-    return `#${[r, g, b]
-      .map((n) => n.toString(16).padStart(2, '0'))
-      .join('')}`
-      .toUpperCase();
+  function rgbToHex(
+    r,
+    g,
+    b
+  ) {
+    return `#${[
+      r,
+      g,
+      b,
+    ]
+      .map((n) =>
+        n
+          .toString(16)
+          .padStart(2, '0')
+      )
+      .join('')}`.toUpperCase();
   }
 
-  function rgbToHsv(r, g, b) {
+  function rgbToHsv(
+    r,
+    g,
+    b
+  ) {
     r /= 255;
     g /= 255;
     b /= 255;
 
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const d = max - min;
+    const max =
+      Math.max(r, g, b);
+
+    const min =
+      Math.min(r, g, b);
+
+    const d =
+      max - min;
 
     let h = 0;
 
     if (d !== 0) {
       if (max === r) {
-        h = ((g - b) / d) % 6;
-      } else if (max === g) {
-        h = (b - r) / d + 2;
+        h =
+          ((g - b) / d) %
+          6;
+      } else if (
+        max === g
+      ) {
+        h =
+          (b - r) / d +
+          2;
       } else {
-        h = (r - g) / d + 4;
+        h =
+          (r - g) / d +
+          4;
       }
 
       h /= 6;
@@ -161,18 +730,39 @@
       }
     }
 
-    const s = max === 0 ? 0 : d / max;
+    const s =
+      max === 0
+        ? 0
+        : d / max;
 
-    return [h, s, max];
+    return [
+      h,
+      s,
+      max,
+    ];
   }
 
-  function hsvToRgb(h, s, v) {
-    const i = Math.floor(h * 6);
-    const f = h * 6 - i;
+  function hsvToRgb(
+    h,
+    s,
+    v
+  ) {
+    const i =
+      Math.floor(h * 6);
 
-    const p = v * (1 - s);
-    const q = v * (1 - f * s);
-    const t = v * (1 - (1 - f) * s);
+    const f =
+      h * 6 - i;
+
+    const p =
+      v * (1 - s);
+
+    const q =
+      v * (1 - f * s);
+
+    const t =
+      v *
+      (1 -
+        (1 - f) * s);
 
     const table = [
       [v, t, p],
@@ -183,7 +773,12 @@
       [v, p, q],
     ];
 
-    const [r, g, b] = table[i % 6];
+    const [
+      r,
+      g,
+      b,
+    ] =
+      table[i % 6];
 
     return [
       Math.round(r * 255),
@@ -192,11 +787,25 @@
     ];
   }
 
-  function vividize(r, g, b) {
-    let [h, s, v] = rgbToHsv(r, g, b);
+  function vividize(
+    r,
+    g,
+    b
+  ) {
+    let [
+      h,
+      s,
+      v,
+    ] =
+      rgbToHsv(
+        r,
+        g,
+        b
+      );
 
     s = clamp(
-      Math.max(s, 0.78) * 1.4,
+      Math.max(s, 0.78) *
+        1.4,
       0.82,
       1
     );
@@ -207,62 +816,201 @@
       0.98
     );
 
-    return hsvToRgb(h, s, v);
+    return hsvToRgb(
+      h,
+      s,
+      v
+    );
   }
 
-  function paletteFromRgb(r, g, b) {
-    const [ar, ag, ab] = vividize(r, g, b);
-    const [h] = rgbToHsv(ar, ag, ab);
+  function paletteFromRgb(
+    r,
+    g,
+    b
+  ) {
+    const [
+      ar,
+      ag,
+      ab,
+    ] =
+      vividize(
+        r,
+        g,
+        b
+      );
 
-    const [lr, lg, lb] = hsvToRgb(h, 0.82, 0.98);
-    const [dr, dg, db] = hsvToRgb(h, 0.95, 0.52);
-    const [hr, hg, hb] = hsvToRgb(h, 0.9, 1);
-    const [dbr, dbg, dbb] = hsvToRgb(h, 0.92, 0.46);
+    const [h] =
+      rgbToHsv(
+        ar,
+        ag,
+        ab
+      );
+
+    const [
+      lr,
+      lg,
+      lb,
+    ] =
+      hsvToRgb(
+        h,
+        0.82,
+        0.98
+      );
+
+    const [
+      dr,
+      dg,
+      db,
+    ] =
+      hsvToRgb(
+        h,
+        0.95,
+        0.52
+      );
+
+    const [
+      hr,
+      hg,
+      hb,
+    ] =
+      hsvToRgb(
+        h,
+        0.9,
+        1
+      );
+
+    const [
+      dbr,
+      dbg,
+      dbb,
+    ] =
+      hsvToRgb(
+        h,
+        0.92,
+        0.46
+      );
 
     return {
-      accent: rgbToHex(ar, ag, ab),
-      accent_hover: rgbToHex(hr, hg, hb),
-      accent_deep: rgbToHex(dbr, dbg, dbb),
-      accent_soft: `rgba(${ar}, ${ag}, ${ab}, 0.45)`,
-      accent_glow: `rgba(${ar}, ${ag}, ${ab}, 0.85)`,
-      bg_top: `rgba(${lr}, ${lg}, ${lb}, 0.55)`,
-      bg_side: `rgba(${dr}, ${dg}, ${db}, 0.4)`,
-      aurora_1: rgbToHex(lr, lg, lb),
-      aurora_2: rgbToHex(ar, ag, ab),
-      aurora_3: rgbToHex(dr, dg, db),
+      accent:
+        rgbToHex(
+          ar,
+          ag,
+          ab
+        ),
+
+      accent_hover:
+        rgbToHex(
+          hr,
+          hg,
+          hb
+        ),
+
+      accent_deep:
+        rgbToHex(
+          dbr,
+          dbg,
+          dbb
+        ),
+
+      accent_soft:
+        `rgba(${ar}, ${ag}, ${ab}, 0.45)`,
+
+      accent_glow:
+        `rgba(${ar}, ${ag}, ${ab}, 0.85)`,
+
+      bg_top:
+        `rgba(${lr}, ${lg}, ${lb}, 0.55)`,
+
+      bg_side:
+        `rgba(${dr}, ${dg}, ${db}, 0.4)`,
+
+      aurora_1:
+        rgbToHex(
+          lr,
+          lg,
+          lb
+        ),
+
+      aurora_2:
+        rgbToHex(
+          ar,
+          ag,
+          ab
+        ),
+
+      aurora_3:
+        rgbToHex(
+          dr,
+          dg,
+          db
+        ),
     };
   }
 
-  function extractPaletteFromImage(img) {
-    const canvas = document.createElement('canvas');
+  function extractPaletteFromImage(
+    img
+  ) {
+    const canvas =
+      document.createElement(
+        'canvas'
+      );
 
     canvas.width = 64;
     canvas.height = 64;
 
-    const ctx = canvas.getContext(
-      '2d',
-      { willReadFrequently: true }
-    );
+    const ctx =
+      canvas.getContext(
+        '2d',
+        {
+          willReadFrequently:
+            true,
+        }
+      );
 
-    if (!ctx) return null;
+    if (!ctx) {
+      return null;
+    }
 
-    ctx.drawImage(img, 0, 0, 64, 64);
-
-    const { data } = ctx.getImageData(
+    ctx.drawImage(
+      img,
       0,
       0,
       64,
       64
     );
 
-    const buckets = new Map();
+    const {
+      data,
+    } =
+      ctx.getImageData(
+        0,
+        0,
+        64,
+        64
+      );
 
-    for (let i = 0; i < data.length; i += 4) {
+    const buckets =
+      new Map();
+
+    for (
+      let i = 0;
+      i < data.length;
+      i += 4
+    ) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
 
-      const [, s, v] = rgbToHsv(r, g, b);
+      const [
+        ,
+        s,
+        v,
+      ] =
+        rgbToHsv(
+          r,
+          g,
+          b
+        );
 
       if (
         v < 0.14 ||
@@ -272,54 +1020,86 @@
         continue;
       }
 
-      const key = `${r >> 4}_${g >> 4}_${b >> 4}`;
+      const key =
+        `${r >> 4}_${g >> 4}_${b >> 4}`;
 
       const weight =
         (1 + s * 2.6) *
-        (0.55 + Math.min(v, 0.9));
+        (0.55 +
+          Math.min(
+            v,
+            0.9
+          ));
 
       const current =
-        buckets.get(key) ||
-        {
+        buckets.get(
+          key
+        ) || {
           r,
           g,
           b,
           score: 0,
         };
 
-      current.score += weight;
+      current.score +=
+        weight;
 
-      buckets.set(key, current);
+      buckets.set(
+        key,
+        current
+      );
     }
 
     const ranked = [
       ...buckets.values(),
     ]
-      .sort((a, b) => b.score - a.score)
+      .sort(
+        (a, b) =>
+          b.score -
+          a.score
+      )
       .slice(0, 12);
 
-    if (!ranked.length) {
+    if (
+      !ranked.length
+    ) {
       return null;
     }
 
-    let best = ranked[0];
-    let bestVivid = -1;
+    let best =
+      ranked[0];
 
-    for (const color of ranked) {
-      const [, s, v] = rgbToHsv(
-        color.r,
-        color.g,
-        color.b
-      );
+    let bestVivid =
+      -1;
+
+    for (
+      const color of ranked
+    ) {
+      const [
+        ,
+        s,
+        v,
+      ] =
+        rgbToHsv(
+          color.r,
+          color.g,
+          color.b
+        );
 
       const vivid =
         color.score *
         (0.35 + s) *
         (0.4 + v);
 
-      if (vivid > bestVivid) {
-        bestVivid = vivid;
-        best = color;
+      if (
+        vivid >
+        bestVivid
+      ) {
+        bestVivid =
+          vivid;
+
+        best =
+          color;
       }
     }
 
@@ -330,7 +1110,9 @@
     );
   }
 
-  function applyPalette(palette) {
+  function applyPalette(
+    palette
+  ) {
     const colors = {
       ...DEFAULT_PALETTE,
       ...(palette || {}),
@@ -389,16 +1171,20 @@
       colors.aurora_3
     );
 
-    document.body.classList.add('themed');
+    document.body.classList.add(
+      'themed'
+    );
 
     document.body.classList.toggle(
       'cover-black',
-      colors.tone === 'black'
+      colors.tone ===
+        'black'
     );
 
     document.body.classList.toggle(
       'cover-white',
-      colors.tone === 'white'
+      colors.tone ===
+        'white'
     );
   }
 
@@ -415,17 +1201,25 @@
     );
   }
 
-  function coverSrc(thumbnail) {
-    if (!thumbnail) return '';
+  function coverSrc(
+    thumbnail
+  ) {
+    if (!thumbnail) {
+      return '';
+    }
 
     return `/api/cover?src=${encodeURIComponent(
       thumbnail
     )}`;
   }
 
-  function formatBytes(bytes) {
+  function formatBytes(
+    bytes
+  ) {
     if (
-      !Number.isFinite(bytes) ||
+      !Number.isFinite(
+        bytes
+      ) ||
       bytes <= 0
     ) {
       return '—';
@@ -443,34 +1237,48 @@
 
     while (
       value >= 1024 &&
-      unit < units.length - 1
+      unit <
+        units.length - 1
     ) {
       value /= 1024;
       unit++;
     }
 
     return `${value.toFixed(
-      unit === 0 ? 0 : 1
+      unit === 0
+        ? 0
+        : 1
     )} ${units[unit]}`;
   }
 
-  function formatEta(seconds) {
+  function formatEta(
+    seconds
+  ) {
     if (
-      !Number.isFinite(seconds) ||
+      !Number.isFinite(
+        seconds
+      ) ||
       seconds < 0
     ) {
       return '—';
     }
 
-    const total = Math.round(seconds);
+    const total =
+      Math.round(
+        seconds
+      );
 
     const minutes =
-      Math.floor(total / 60);
+      Math.floor(
+        total / 60
+      );
 
     const secs =
       total % 60;
 
-    if (minutes > 0) {
+    if (
+      minutes > 0
+    ) {
       return `${minutes}m ${secs}s`;
     }
 
@@ -482,34 +1290,41 @@
      ========================================================= */
 
   function openDownloadModal() {
-    downloadOverlay.hidden = false;
+    downloadOverlay.hidden =
+      false;
 
-    /*
-     * Importante:
-     * Ya NO usamos la portada aquí.
-     * Tampoco modificamos el fondo de la página.
-     */
-
-    document.body.classList.remove(
-      'download-open'
-    );
+    updateResponsiveViewport();
 
     downloadModalTitle.textContent =
-      `${previewTitle.textContent || 'Canción'}${
+      `${
+        previewTitle.textContent ||
+        'Canción'
+      }${
         previewArtist.textContent
           ? ` — ${previewArtist.textContent}`
           : ''
       }`;
 
-    downloadPercent.textContent = '1%';
-    downloadSize.textContent = 'Preparando descarga…';
-    downloadProgressBar.style.width = '1%';
-    downloadSpeed.textContent = '⚡ Calculando…';
-    downloadEta.textContent = '⏱ Calculando…';
+    downloadPercent.textContent =
+      '1%';
+
+    downloadSize.textContent =
+      'Preparando descarga…';
+
+    downloadProgressBar.style.width =
+      '1%';
+
+    downloadSpeed.textContent =
+      '⚡ Calculando…';
+
+    downloadEta.textContent =
+      '⏱ Calculando…';
   }
 
   function closeDownloadModal() {
-    downloadOverlay.hidden = true;
+    downloadOverlay.hidden =
+      true;
+
     document.body.classList.remove(
       'download-open'
     );
@@ -526,14 +1341,13 @@
       Number(percent);
 
     if (
-      !Number.isFinite(safePercent)
+      !Number.isFinite(
+        safePercent
+      )
     ) {
       safePercent = 1;
     }
 
-    /*
-     * Evitamos que visualmente se quede en 0%.
-     */
     if (
       safePercent > 0 &&
       safePercent < 1
@@ -541,23 +1355,37 @@
       safePercent = 1;
     }
 
-    safePercent = Math.min(
-      100,
-      Math.max(0, safePercent)
-    );
+    safePercent =
+      Math.min(
+        100,
+        Math.max(
+          0,
+          safePercent
+        )
+      );
 
     downloadPercent.textContent =
-      `${safePercent.toFixed(0)}%`;
+      `${safePercent.toFixed(
+        0
+      )}%`;
 
     downloadProgressBar.style.width =
       `${safePercent}%`;
 
     if (total > 0) {
       downloadSize.textContent =
-        `${formatBytes(downloaded)} / ${formatBytes(total)}`;
-    } else if (downloaded > 0) {
+        `${formatBytes(
+          downloaded
+        )} / ${formatBytes(
+          total
+        )}`;
+    } else if (
+      downloaded > 0
+    ) {
       downloadSize.textContent =
-        formatBytes(downloaded);
+        formatBytes(
+          downloaded
+        );
     } else {
       downloadSize.textContent =
         'Preparando descarga…';
@@ -565,19 +1393,28 @@
 
     downloadSpeed.textContent =
       speed > 0
-        ? `⚡ ${formatBytes(speed)}/s`
+        ? `⚡ ${formatBytes(
+            speed
+          )}/s`
         : '⚡ Calculando…';
 
     downloadEta.textContent =
       eta !== null &&
       eta !== undefined &&
-      Number.isFinite(eta)
-        ? `⏱ ${formatEta(eta)}`
+      Number.isFinite(
+        eta
+      )
+        ? `⏱ ${formatEta(
+            eta
+          )}`
         : '⏱ Calculando…';
   }
 
-  function setSearchLoading(loading) {
-    searchBtn.disabled = loading;
+  function setSearchLoading(
+    loading
+  ) {
+    searchBtn.disabled =
+      loading;
 
     searchBtn.textContent =
       loading
@@ -585,16 +1422,22 @@
         : 'Vista previa';
   }
 
-  function showError(message) {
+  function showError(
+    message
+  ) {
     searchError.textContent =
       message;
 
-    searchError.hidden = false;
+    searchError.hidden =
+      false;
   }
 
   function clearError() {
-    searchError.hidden = true;
-    searchError.textContent = '';
+    searchError.hidden =
+      true;
+
+    searchError.textContent =
+      '';
   }
 
   function selectedFormat() {
@@ -638,24 +1481,29 @@
   ) {
     downloadedSongs.unshift({
       title:
-        title || 'Canción',
+        title ||
+        'Canción',
+
       artist:
-        artist || 'Artista desconocido',
+        artist ||
+        'Artista desconocido',
+
       format:
         format.toUpperCase(),
+
       time:
         new Date(),
     });
 
-    /*
-     * Evitamos que la lista crezca
-     * indefinidamente.
-     */
     if (
-      downloadedSongs.length > 20
+      downloadedSongs.length >
+      20
     ) {
       downloadedSongs =
-        downloadedSongs.slice(0, 20);
+        downloadedSongs.slice(
+          0,
+          20
+        );
     }
 
     renderDownloadedSongs();
@@ -671,19 +1519,16 @@
     const container =
       findDownloadListContainer();
 
-    /*
-     * Si el HTML todavía no tiene el
-     * contenedor, no hacemos nada.
-     * El resto de la descarga sigue funcionando.
-     */
     if (!container) {
       return;
     }
 
-    container.innerHTML = '';
+    container.innerHTML =
+      '';
 
     if (
-      downloadedSongs.length === 0
+      downloadedSongs.length ===
+      0
     ) {
       container.innerHTML = `
         <div class="download-empty">
@@ -696,7 +1541,10 @@
     }
 
     downloadedSongs.forEach(
-      (song, index) => {
+      (
+        song,
+        index
+      ) => {
         const item =
           document.createElement(
             'div'
@@ -711,27 +1559,52 @@
           </div>
 
           <div class="download-history-info">
-            <strong>${escapeHtml(song.title)}</strong>
-            <span>${escapeHtml(song.artist)}</span>
+            <strong>${escapeHtml(
+              song.title
+            )}</strong>
+            <span>${escapeHtml(
+              song.artist
+            )}</span>
           </div>
 
           <div class="download-history-format">
-            ${escapeHtml(song.format)}
+            ${escapeHtml(
+              song.format
+            )}
           </div>
         `;
 
-        container.appendChild(item);
+        container.appendChild(
+          item
+        );
       }
     );
   }
 
-  function escapeHtml(value) {
+  function escapeHtml(
+    value
+  ) {
     return String(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
+      .replaceAll(
+        '&',
+        '&amp;'
+      )
+      .replaceAll(
+        '<',
+        '&lt;'
+      )
+      .replaceAll(
+        '>',
+        '&gt;'
+      )
+      .replaceAll(
+        '"',
+        '&quot;'
+      )
+      .replaceAll(
+        "'",
+        '&#039;'
+      );
   }
 
   /* =========================================================
@@ -751,39 +1624,43 @@
     }
 
     ytApiPromise =
-      new Promise((resolve) => {
-        const previous =
-          window.onYouTubeIframeAPIReady;
+      new Promise(
+        (resolve) => {
+          const previous =
+            window.onYouTubeIframeAPIReady;
 
-        window.onYouTubeIframeAPIReady =
-          () => {
-            if (
-              typeof previous ===
-              'function'
-            ) {
-              previous();
-            }
+          window.onYouTubeIframeAPIReady =
+            () => {
+              if (
+                typeof previous ===
+                'function'
+              ) {
+                previous();
+              }
 
-            resolve();
-          };
+              resolve();
+            };
 
-        const script =
-          document.createElement(
-            'script'
+          const script =
+            document.createElement(
+              'script'
+            );
+
+          script.src =
+            'https://www.youtube.com/iframe_api';
+
+          document.head.appendChild(
+            script
           );
-
-        script.src =
-          'https://www.youtube.com/iframe_api';
-
-        document.head.appendChild(
-          script
-        );
-      });
+        }
+      );
 
     return ytApiPromise;
   }
 
-  function setPlayingUi(playing) {
+  function setPlayingUi(
+    playing
+  ) {
     playIcon.hidden =
       playing;
 
@@ -803,25 +1680,36 @@
     );
   }
 
-  function setPlayerMessage(message) {
+  function setPlayerMessage(
+    message
+  ) {
     if (!message) {
-      playerStatus.hidden = true;
-      playerStatus.textContent = '';
+      playerStatus.hidden =
+        true;
+
+      playerStatus.textContent =
+        '';
+
       return;
     }
 
-    playerStatus.hidden = false;
+    playerStatus.hidden =
+      false;
+
     playerStatus.textContent =
       message;
   }
 
   function stopProgress() {
-    if (progressTimer) {
+    if (
+      progressTimer
+    ) {
       clearInterval(
         progressTimer
       );
 
-      progressTimer = null;
+      progressTimer =
+        null;
     }
   }
 
@@ -836,17 +1724,25 @@
     }
 
     const duration =
-      ytPlayer.getDuration() || 0;
+      ytPlayer.getDuration() ||
+      0;
 
     const current =
-      ytPlayer.getCurrentTime() || 0;
+      ytPlayer.getCurrentTime() ||
+      0;
 
-    if (duration > 0) {
+    if (
+      duration > 0
+    ) {
       seekBar.max =
-        String(duration);
+        String(
+          duration
+        );
 
       seekBar.value =
-        String(current);
+        String(
+          current
+        );
 
       timeTotal.textContent =
         formatDuration(
@@ -875,7 +1771,9 @@
   function destroyPlayer() {
     stopProgress();
 
-    setPlayingUi(false);
+    setPlayingUi(
+      false
+    );
 
     if (
       ytPlayer &&
@@ -884,15 +1782,21 @@
     ) {
       try {
         ytPlayer.destroy();
-      } catch (_error) {
+      } catch (
+        _error
+      ) {
         /* ignore */
       }
     }
 
-    ytPlayer = null;
-    ytReady = false;
+    ytPlayer =
+      null;
 
-    seekBar.value = '0';
+    ytReady =
+      false;
+
+    seekBar.value =
+      '0';
 
     timeCurrent.textContent =
       '0:00';
@@ -917,7 +1821,9 @@
         .querySelector(
           '.player-panel'
         )
-        .prepend(fresh);
+        .prepend(
+          fresh
+        );
     }
   }
 
@@ -932,30 +1838,49 @@
       .then(
         () =>
           new Promise(
-            (resolve, reject) => {
+            (
+              resolve,
+              reject
+            ) => {
               ytPlayer =
                 new window.YT.Player(
                   'yt-player',
                   {
-                    height: '1',
-                    width: '1',
+                    height:
+                      '1',
+
+                    width:
+                      '1',
 
                     videoId:
                       currentVideoId,
 
                     playerVars: {
-                      autoplay: 0,
-                      controls: 0,
-                      disablekb: 1,
+                      autoplay:
+                        0,
+
+                      controls:
+                        0,
+
+                      disablekb:
+                        1,
+
                       fs: 0,
-                      modestbranding: 1,
-                      playsinline: 1,
+
+                      modestbranding:
+                        1,
+
+                      playsinline:
+                        1,
+
                       rel: 0,
                     },
 
                     events: {
                       onReady:
-                        (event) => {
+                        (
+                          event
+                        ) => {
                           ytReady =
                             true;
 
@@ -980,7 +1905,9 @@
                         },
 
                       onStateChange:
-                        (event) => {
+                        (
+                          event
+                        ) => {
                           const playing =
                             event.data ===
                             window.YT.PlayerState.PLAYING;
@@ -999,6 +1926,7 @@
                             startProgress();
                           } else {
                             stopProgress();
+
                             updateProgress();
                           }
 
@@ -1043,13 +1971,18 @@
   }
 
   async function togglePlayback() {
-    if (!currentVideoId) {
+    if (
+      !currentVideoId
+    ) {
       return;
     }
 
-    playBtn.disabled = true;
+    playBtn.disabled =
+      true;
 
-    setPlayerMessage('');
+    setPlayerMessage(
+      ''
+    );
 
     try {
       const player =
@@ -1066,13 +1999,16 @@
       } else {
         player.playVideo();
       }
-    } catch (error) {
+    } catch (
+      error
+    ) {
       setPlayerMessage(
         error.message ||
           'No se pudo reproducir este video.'
       );
     } finally {
-      playBtn.disabled = false;
+      playBtn.disabled =
+        false;
     }
   }
 
@@ -1084,7 +2020,8 @@
   seekBar.addEventListener(
     'input',
     () => {
-      seeking = true;
+      seeking =
+        true;
 
       timeCurrent.textContent =
         formatDuration(
@@ -1098,7 +2035,8 @@
   seekBar.addEventListener(
     'change',
     () => {
-      seeking = false;
+      seeking =
+        false;
 
       if (
         ytPlayer &&
@@ -1116,20 +2054,26 @@
     }
   );
 
-  function detectCoverTone(img) {
+  function detectCoverTone(
+    img
+  ) {
     const probe =
       document.createElement(
         'canvas'
       );
 
-    probe.width = 32;
-    probe.height = 32;
+    probe.width =
+      32;
+
+    probe.height =
+      32;
 
     const ctx =
       probe.getContext(
         '2d',
         {
-          willReadFrequently: true,
+          willReadFrequently:
+            true,
         }
       );
 
@@ -1145,7 +2089,9 @@
       32
     );
 
-    const { data } =
+    const {
+      data,
+    } =
       ctx.getImageData(
         0,
         0,
@@ -1153,8 +2099,11 @@
         32
       );
 
-    let sat = 0;
-    let val = 0;
+    let sat =
+      0;
+
+    let val =
+      0;
 
     const count =
       data.length / 4;
@@ -1164,7 +2113,11 @@
       i < data.length;
       i += 4
     ) {
-      const [, s, v] =
+      const [
+        ,
+        s,
+        v,
+      ] =
         rgbToHsv(
           data[i],
           data[i + 1],
@@ -1178,12 +2131,18 @@
     sat /= count;
     val /= count;
 
-    if (sat < 0.16) {
-      if (val < 0.34) {
+    if (
+      sat < 0.16
+    ) {
+      if (
+        val < 0.34
+      ) {
         return 'black';
       }
 
-      if (val > 0.72) {
+      if (
+        val > 0.72
+      ) {
         return 'white';
       }
     }
@@ -1224,7 +2183,9 @@
           previewThumb
         );
 
-      if (extracted) {
+      if (
+        extracted
+      ) {
         applyPalette(
           extracted
         );
@@ -1238,7 +2199,9 @@
 
   form.addEventListener(
     'submit',
-    async (event) => {
+    async (
+      event
+    ) => {
       event.preventDefault();
 
       const url =
@@ -1250,15 +2213,25 @@
 
       clearError();
 
-      setSearchLoading(true);
+      setSearchLoading(
+        true
+      );
 
-      preview.hidden = true;
+      preview.hidden =
+        true;
 
-      downloadStatus.hidden = true;
+      document.body.classList.remove(
+        'app-has-preview'
+      );
+
+      downloadStatus.hidden =
+        true;
 
       destroyPlayer();
 
-      setPlayerMessage('');
+      setPlayerMessage(
+        ''
+      );
 
       try {
         const response =
@@ -1271,14 +2244,17 @@
         const data =
           await response.json();
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           throw new Error(
             data.detail ||
               'No pudimos leer ese enlace.'
           );
         }
 
-        currentUrl = url;
+        currentUrl =
+          url;
 
         currentVideoId =
           data.id || '';
@@ -1333,19 +2309,43 @@
         playBtn.disabled =
           !currentVideoId;
 
+        /*
+         * Mostramos la vista previa y estabilizamos
+         * inmediatamente el layout.
+         */
         preview.hidden =
           false;
 
+        stabilizePreviewLayout();
+
         updateFormatUI();
-      } catch (error) {
+
+        /*
+         * Segundo recalculo después de que el navegador
+         * haya pintado la portada/contenido.
+         */
+        requestAnimationFrame(
+          () => {
+            updateResponsiveViewport();
+          }
+        );
+      } catch (
+        error
+      ) {
         resetPalette();
+
+        document.body.classList.remove(
+          'app-has-preview'
+        );
 
         showError(
           error.message ||
             'No pudimos leer ese enlace. Verifica que sea un enlace válido de YouTube o YouTube Music.'
         );
       } finally {
-        setSearchLoading(false);
+        setSearchLoading(
+          false
+        );
       }
     }
   );
@@ -1395,24 +2395,32 @@
           await fetch(
             '/api/download',
             {
-              method: 'POST',
+              method:
+                'POST',
 
               headers: {
                 'Content-Type':
                   'application/json',
               },
 
-              body: JSON.stringify({
-                url: currentUrl,
-                format,
-              }),
+              body:
+                JSON.stringify(
+                  {
+                    url:
+                      currentUrl,
+
+                    format,
+                  }
+                ),
 
               signal:
                 downloadController.signal,
             }
           );
 
-        if (!response.ok) {
+        if (
+          !response.ok
+        ) {
           const data =
             await response
               .json()
@@ -1450,10 +2458,6 @@
               )
             : '';
 
-        /*
-         * Si el backend no envía nombre,
-         * usamos canción + artista.
-         */
         if (!filename) {
           filename =
             `${sanitizeFilename(
@@ -1463,7 +2467,9 @@
             )}.${format}`;
         }
 
-        if (!response.body) {
+        if (
+          !response.body
+        ) {
           throw new Error(
             'El navegador no permite mostrar el progreso.'
           );
@@ -1472,17 +2478,15 @@
         const reader =
           response.body.getReader();
 
-        const chunks = [];
+        const chunks =
+          [];
 
-        let received = 0;
+        let received =
+          0;
 
         const startTime =
           performance.now();
 
-        /*
-         * Mostramos inmediatamente
-         * que la descarga comenzó.
-         */
         updateDownloadProgress(
           total > 0
             ? 1
@@ -1493,18 +2497,24 @@
           null
         );
 
-        while (true) {
+        while (
+          true
+        ) {
           const {
             done,
             value,
           } =
             await reader.read();
 
-          if (done) {
+          if (
+            done
+          ) {
             break;
           }
 
-          chunks.push(value);
+          chunks.push(
+            value
+          );
 
           received +=
             value.length;
@@ -1561,7 +2571,9 @@
         );
 
         const blob =
-          new Blob(chunks);
+          new Blob(
+            chunks
+          );
 
         const objectUrl =
           URL.createObjectURL(
@@ -1591,10 +2603,6 @@
           objectUrl
         );
 
-        /*
-         * Agregar canción a la lista
-         * de descargas.
-         */
         addDownloadedSong(
           title,
           artist,
@@ -1607,16 +2615,15 @@
         downloadStatus.hidden =
           false;
 
-        /*
-         * Cerramos rápido la ventana.
-         */
         setTimeout(
           () => {
             closeDownloadModal();
           },
           700
         );
-      } catch (error) {
+      } catch (
+        error
+      ) {
         if (
           error.name ===
           'AbortError'
@@ -1661,8 +2668,12 @@
     }
   );
 
-  function sanitizeFilename(name) {
-    return String(name || 'audio')
+  function sanitizeFilename(
+    name
+  ) {
+    return String(
+      name || 'audio'
+    )
       .replace(
         /[<>:"/\\|?*\x00-\x1F]/g,
         ''
@@ -1676,21 +2687,21 @@
         /\.+$/,
         ''
       )
-      .slice(0, 150);
+      .slice(
+        0,
+        150
+      );
   }
 
-  /*
-   * Intentamos mostrar la lista si el HTML
-   * ya tiene el contenedor.
-   */
   renderDownloadedSongs();
-  /* =========================================
+
+  /* =========================================================
      MOVIMIENTO DE LA VENTANA DE DESCARGA
-     SIGUIENDO EL CURSOR
-     ========================================= */
+     ========================================================= */
 
-  if (downloadOverlay) {
-
+  if (
+    downloadOverlay
+  ) {
     let mouseX = 0;
     let mouseY = 0;
 
@@ -1702,7 +2713,18 @@
 
     document.addEventListener(
       'mousemove',
-      event => {
+      (event) => {
+        /*
+         * En móviles no necesitamos seguir el cursor.
+         */
+        if (
+          window.innerWidth <=
+          700
+        ) {
+          targetX = 0;
+          targetY = 0;
+          return;
+        }
 
         mouseX =
           event.clientX /
@@ -1712,50 +2734,47 @@
           event.clientY /
           window.innerHeight;
 
-
-        /*
-         * Movimiento máximo:
-         * 12px horizontal
-         * 8px vertical
-         */
-
         targetX =
-          (mouseX - 0.5) * 24;
+          (mouseX - 0.5) *
+          24;
 
         targetY =
-          (mouseY - 0.5) * 16;
-
+          (mouseY - 0.5) *
+          16;
       }
     );
 
-
     function animateDownloadWindow() {
-
       currentX +=
-        (targetX - currentX) * 0.08;
+        (targetX -
+          currentX) *
+        0.08;
 
       currentY +=
-        (targetY - currentY) * 0.08;
-
+        (targetY -
+          currentY) *
+        0.08;
 
       downloadOverlay.style.setProperty(
         '--download-move-x',
-        `${currentX.toFixed(2)}px`
+        `${currentX.toFixed(
+          2
+        )}px`
       );
 
       downloadOverlay.style.setProperty(
         '--download-move-y',
-        `${currentY.toFixed(2)}px`
+        `${currentY.toFixed(
+          2
+        )}px`
       );
-
 
       requestAnimationFrame(
         animateDownloadWindow
       );
     }
 
-
     animateDownloadWindow();
-
   }
 })();
+```
