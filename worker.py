@@ -14,6 +14,7 @@ app = FastAPI(title="Sonora YouTube Worker")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "").strip()
 ALLOWED_FORMATS = {"mp3": "mp3", "m4a": "m4a", "opus": "opus", "wav": "wav"}
 COOKIES_FILE = Path(os.getenv("YTDLP_COOKIES_FILE", "/app/cookies.txt"))
+BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip("/")
 
 class InfoRequest(BaseModel):
     url: str
@@ -41,6 +42,13 @@ def _base_options() -> dict:
         "quiet": False,
         "no_warnings": False,
         "noplaylist": True,
+        # Render has been hitting YouTube's bot-check. Explicitly use the
+        # mweb client and the local bgutil HTTP provider so yt-dlp requests a
+        # fresh PO token instead of relying on the default client selection.
+        "extractor_args": {
+            "youtube": ["player_client=mweb"],
+            "youtubepot-bgutilhttp": [f"base_url={BGUTIL_URL}"],
+        },
     }
     # Use the same cookies uploaded through Sonora when available.
     if COOKIES_FILE.is_file() and COOKIES_FILE.stat().st_size > 0:
