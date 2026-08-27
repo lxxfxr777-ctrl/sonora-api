@@ -63,12 +63,26 @@ RUN if [ -f /app/cookies.txt ]; then chmod 600 /app/cookies.txt || true; fi
 
 EXPOSE 10000
 
-# Start bgutil, the local YouTube worker, then the public Sonora API.
+# Start bgutil, wait until its HTTP endpoint is actually ready, then start
+# the local worker and the public Sonora API. This prevents yt-dlp from
+# starting before the PO-token server can answer /ping.
 CMD ["sh", "-c", "\
+    set -e; \
     echo '=== SONORA: starting bgutil ==='; \
     node /opt/bgutil/server/build/main.js --port 4416 & BGUTIL_PID=$!; \
-    sleep 3; \
-    kill -0 $BGUTIL_PID 2>/dev/null || { echo '[ERROR] BGUTIL failed'; exit 1; }; \
+    READY=0; \
+    for i in $(seq 1 30); do \
+      if ! kill -0 $BGUTIL_PID 2>/dev/null; then \
+        echo '[ERROR] BGUTIL process exited'; exit 1; \
+      fi; \
+      if curl -fsS --max-time 2 http://127.0.0.1:4416/ping >/dev/null 2>&1; then \
+        READY=1; break; \
+      fi; \
+      sleep 1; \
+    done; \
+    if [ "$READY" -ne 1 ]; then \
+      echo '[ERROR] BGUTIL did not become ready on 127.0.0.1:4416'; exit 1; \
+    fi; \
     echo '[OK] bgutil on 127.0.0.1:4416'; \
     echo '=== SONORA: starting local worker ==='; \
     python -m uvicorn worker:app --host 127.0.0.1 --port 8787 & WORKER_PID=$!; \
