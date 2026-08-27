@@ -1761,7 +1761,7 @@ body {
 
     gap: 22px;
 
-    align-items: start;
+    align-items: stretch;
 
     margin-left: auto;
     margin-right: auto;
@@ -1781,26 +1781,31 @@ body {
      contenido del panel de texto ni cambia entre canciones.
      --------------------------------------------------------- */
 
-  .cover-stage {
+    .cover-stage {
     width: 260px;
-    height: 260px;
-
     min-width: 260px;
     max-width: 260px;
-    min-height: 260px;
-    max-height: 260px;
+
+    height: auto;
 
     margin: 0;
-
     flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .cover-frame,
+  .cover-frame {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    height: auto;
+  }
+
   .cover-art {
     width: 100%;
     height: 100%;
   }
-
 
   /* ---------------------------------------------------------
      CUADRO DE INFORMACIÓN
@@ -1810,14 +1815,14 @@ body {
      en vez de estirar la caja.
      --------------------------------------------------------- */
 
-  .track-panel {
+   .track-panel {
     width: 100%;
     min-width: 0;
     max-width: none;
-
-    height: 260px;
-    min-height: 260px;
-    max-height: 260px;
+    box-sizing: border-box;
+    padding: 22px 24px;
+    justify-content: center;
+  }
 
     /*
      * Este es importante:
