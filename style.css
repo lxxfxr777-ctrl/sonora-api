@@ -1728,3 +1728,59 @@ body {
     font-size: 1.05rem;
   }
 }
+/* =========================================================
+   AJUSTE FINAL — PANTALLAS GRANDES
+   =========================================================
+   SOLO SE APLICA DESDE 721px.
+   LOS CELULARES QUEDAN EXACTAMENTE COMO ESTÁN.
+   ========================================================= */
+
+@media (min-width: 721px) {
+
+  /* Contenedor general: compacto y centrado */
+  .page {
+    width: min(620px, calc(100% - 40px));
+    max-width: 620px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Zona de portada + información */
+  .preview {
+    width: 100%;
+    grid-template-columns: 220px 1fr;
+    gap: 20px;
+    align-items: center;
+  }
+
+  /* Portada un poco más grande, pero sin desplazarla */
+  .cover-stage {
+    width: 220px;
+    max-width: 220px;
+    margin: 0;
+    aspect-ratio: 1 / 1;
+  }
+
+  .cover-frame,
+  .cover-art {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* El reproductor conserva exactamente el ancho del contenido */
+  .player-panel {
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+
+  /* Panel del enlace */
+  .link-panel {
+    width: 100%;
+  }
+
+  /* Panel de información */
+  .track-panel {
+    width: 100%;
+    min-width: 0;
+  }
+}
