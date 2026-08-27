@@ -38,21 +38,38 @@ def clean_url(url: str) -> str:
     return url
 
 def _base_options() -> dict:
+    # IMPORTANT: yt-dlp's Python API expects extractor arguments in the
+    # nested-dict form. The old list form can silently fail to select mweb.
+    # That was why Render logs never showed the bgutil PO-token provider.
     options = {
         "quiet": False,
         "no_warnings": False,
         "noplaylist": True,
-        # Render has been hitting YouTube's bot-check. Explicitly use the
-        # mweb client and the local bgutil HTTP provider so yt-dlp requests a
-        # fresh PO token instead of relying on the default client selection.
+        "verbose": True,
+        "force_ipv4": True,
+        "retries": 3,
+        "extractor_retries": 3,
+        "socket_timeout": 30,
         "extractor_args": {
-            "youtube": ["player_client=mweb"],
-            "youtubepot-bgutilhttp": [f"base_url={BGUTIL_URL}"],
+            "youtube": {
+                "player_client": ["mweb"],
+            },
+            "youtubepot-bgutilhttp": {
+                "base_url": [BGUTIL_URL],
+            },
+        },
+        "js_runtimes": {
+            "deno": {
+                "path": os.getenv("DENO_PATH", "/usr/local/bin/deno"),
+            }
         },
     }
-    # Use the same cookies uploaded through Sonora when available.
+
+    # Use cookies when they are deliberately supplied to the Render service.
+    # Never commit account cookies to the public repository.
     if COOKIES_FILE.is_file() and COOKIES_FILE.stat().st_size > 0:
         options["cookiefile"] = str(COOKIES_FILE)
+
     return options
 
 def ytdlp_info_options() -> dict:
@@ -118,7 +135,11 @@ def download(request: DownloadRequest, authorization: Optional[str] = Header(def
         if not files:
             raise RuntimeError("yt-dlp completed but no converted audio file was produced.")
         audio_file = files[0]
-        return FileResponse(path=str(audio_file), filename=f"{data.get('title') or 'audio'}.{fmt}", media_type="application/octet-stream")
+        return FileResponse(
+            path=str(audio_file),
+            filename=f"{data.get('title') or 'audio'}.{fmt}",
+            media_type="application/octet-stream",
+        )
     except Exception as exc:
         shutil.rmtree(workdir, ignore_errors=True)
         raise HTTPException(status_code=502, detail=str(exc))
