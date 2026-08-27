@@ -532,6 +532,7 @@ body {
   grid-template-columns: 1fr;
   gap: 22px;
   animation: rise 0.4s ease;
+  align-items: stretch;
 }
 
 .cover-stage {
@@ -588,6 +589,11 @@ body {
   letter-spacing: 0.03em;
   line-height: 1.05;
   color: var(--white);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .track-artist {
@@ -595,6 +601,9 @@ body {
   color: var(--muted);
   font-size: 1rem;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .track-stats {
@@ -1457,7 +1466,7 @@ body.download-open {
   .preview {
     grid-template-columns: 210px 1fr;
     gap: 20px;
-    align-items: center;
+    align-items: stretch;
   }
 
   .cover-stage {
@@ -1766,7 +1775,7 @@ body {
 
     gap: 22px;
 
-    align-items: center;
+    align-items: stretch;
 
     margin-left: auto;
     margin-right: auto;
@@ -1782,6 +1791,9 @@ body {
 
   /* ---------------------------------------------------------
      PORTADA
+     Ya NO tiene alto fijo: se estira (align-self: stretch)
+     para igualar siempre la altura del recuadro de texto,
+     sin importar si el título es corto o larguísimo.
      --------------------------------------------------------- */
 
   .cover-stage {
@@ -1789,13 +1801,12 @@ body {
     min-width: 250px;
     max-width: 250px;
 
-    height: 250px;
+    height: auto;
     min-height: 250px;
-    max-height: 250px;
 
     margin: 0;
 
-    aspect-ratio: 1 / 1;
+    align-self: stretch;
 
     flex-shrink: 0;
   }
@@ -1829,11 +1840,16 @@ body {
     overflow: hidden;
 
     padding: 24px;
+
+    justify-content: center;
   }
 
 
   /* ---------------------------------------------------------
      TÍTULO
+     Limitado a 3 líneas como máximo (con puntos suspensivos)
+     para que un nombre de canción kilométrico no estire el
+     panel muchísimo más que la portada.
      --------------------------------------------------------- */
 
   .track-title {
