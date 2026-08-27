@@ -1863,3 +1863,80 @@ body {
     margin-right: auto;
   }
 }
+/* =========================================================
+   FIJAR TAMAÑOS AL CARGAR LA INFORMACIÓN DE LA CANCIÓN
+   SOLO PANTALLAS GRANDES
+   ========================================================= */
+
+@media (min-width: 721px) {
+
+  /* Mantener siempre el mismo ancho del bloque principal */
+  .preview {
+    width: 100%;
+    max-width: 820px;
+    min-width: 0;
+  }
+
+  /* Mantener la misma distribución aunque aparezca
+     la información de la canción */
+  .preview {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+
+  /* La portada no cambia de tamaño al cargar */
+  .cover-stage {
+    width: 250px;
+    min-width: 250px;
+    max-width: 250px;
+    height: 250px;
+    min-height: 250px;
+    max-height: 250px;
+    flex-shrink: 0;
+  }
+
+  .cover-frame,
+  .cover-art {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* El panel de información conserva su espacio */
+  .track-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  /* Evita que títulos o textos largos hagan crecer
+     el panel horizontalmente */
+  .track-title,
+  .track-meta,
+  .track-stats,
+  .format-chips {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .track-title {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* El enlace conserva el mismo ancho */
+  .link-panel {
+    width: 100%;
+    max-width: 820px;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  /* El reproductor tampoco cambia de tamaño */
+  .player-panel {
+    width: 100%;
+    max-width: 820px;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+}
