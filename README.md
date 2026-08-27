@@ -18,7 +18,7 @@ pip install -r requirements.txt
 Inicia:
 
 ```powershell
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Documentación:
@@ -28,24 +28,24 @@ Documentación:
 
 ## Publicar en Render
 
-Este proyecto ya incluye:
+Este proyecto incluye:
 
-- `Dockerfile`: instala Python, dependencias y FFmpeg.
-- `.dockerignore`: evita subir `.venv`, cachés y archivos descargados.
-- `render.yaml`: configura un Web Service gratuito con health check.
-- La aplicación escucha en `0.0.0.0` y usa la variable `PORT` de Render.
+- `Dockerfile`: instala Python, FFmpeg, Node.js y el proveedor bgutil.
+- `render.yaml`: configura el Web Service y el health check.
+- `downloader.py`: ejecuta yt-dlp directamente dentro del contenedor de Render.
+- `main.py`: expone la API y la interfaz web.
+
+El descargador **ya no depende de un worker en Windows ni de un Cloudflare Tunnel**. Render ejecuta el proceso de descarga dentro de su propio contenedor.
 
 ### Opción recomendada: GitHub + Render
 
-1. Sube el contenido de este proyecto a un repositorio de GitHub.
-2. En Render crea **New → Blueprint** y conecta el repositorio.
-3. Render detectará `render.yaml`.
-4. Aplica el Blueprint.
-5. Espera a que termine el primer deploy.
-6. Abre la URL `https://<tu-servicio>.onrender.com`.
-7. Comprueba `/health` y `/docs`.
+1. Conecta este repositorio a Render.
+2. Usa el `render.yaml` como Blueprint o configura el Web Service con Docker.
+3. Espera a que termine el deploy.
+4. Abre la URL `https://<tu-servicio>.onrender.com`.
+5. Comprueba `/health` y `/docs`.
 
-No necesitas ngrok para el despliegue.
+No necesitas mantener una PC encendida para que el descargador funcione.
 
 ## Rutas principales
 
@@ -58,13 +58,23 @@ No necesitas ngrok para el despliegue.
 - `POST /api/download` — descarga con JSON `{ "url": "...", "format": "mp3" }`.
 - `GET /docs` — Swagger/OpenAPI.
 
-## Nota sobre Render Free
+## Cookies de YouTube
 
-El servicio gratuito de Render se duerme después de un periodo de inactividad y puede tardar en despertar con la primera solicitud. Además, el sistema de archivos del servicio es temporal. La aplicación usa carpetas temporales para las descargas, por lo que no depende de conservar los archivos descargados entre reinicios.
+Si YouTube exige cookies para determinados videos, puedes configurar en Render `YTDLP_COOKIES_B64` con el contenido base64 de tu `cookies.txt`, o usar `YTDLP_COOKIES_FILE` / el endpoint protegido de subida de cookies.
 
-## FFmpeg
+Si configuras `YTDLP_COOKIES_API_KEY`, usa `Authorization: Bearer <key>` o `X-API-Key: <key>` para los endpoints de cookies.
 
-FFmpeg se instala dentro de la imagen Docker. No es necesario instalar FFmpeg en el servidor manualmente.
+## Render Free
+
+El servicio gratuito de Render puede dormir después de un periodo de inactividad y puede tardar en despertar con la primera solicitud. Eso es independiente de la descarga: una vez que el contenedor está activo, **el worker ya no está en tu PC** y no necesitas Cloudflare Tunnel ni los comandos de Windows para realizar las descargas.
+
+El sistema de archivos del servicio es temporal. Las descargas se guardan en carpetas temporales y se eliminan después de enviarse al usuario.
+
+## FFmpeg y bgutil
+
+FFmpeg se instala dentro de la imagen Docker.
+
+El proveedor bgutil se compila y se inicia dentro del mismo contenedor en `127.0.0.1:4416`, y `yt-dlp` lo utiliza para sus operaciones de YouTube. La versión del servidor se mantiene alineada con el plugin Python instalado en `requirements.txt`.
 
 ## Importante
 
