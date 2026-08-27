@@ -1442,30 +1442,44 @@ body.download-open {
    RESPONSIVE
    ========================================================= */
 
-@media (min-width: 1000px) {
+/* =========================================================
+   ESCRITORIO
+   ========================================================= */
+
+@media (min-width: 721px) {
+
   .page {
     width: min(560px, calc(100% - 40px));
-    margin: 0 auto;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .preview {
     grid-template-columns: 210px 1fr;
+    gap: 20px;
     align-items: center;
   }
 
   .cover-stage {
     width: 210px;
-    margin: 0 auto;
+    margin: 0;
   }
 
   .player-panel {
     grid-column: 1 / -1;
   }
 }
+
+
+/* =========================================================
+   TABLET / CELULAR
+   NO MODIFICAR EL DISEÑO ORIGINAL
+   ========================================================= */
+
 @media (max-width: 720px) {
+
   .download-overlay {
     bottom: 16px;
-
     width: calc(100vw - 24px);
   }
 
@@ -1475,21 +1489,20 @@ body.download-open {
 
   .download-modal-top {
     border-right: none;
-
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .download-modal::after {
     min-height: 60px;
-
     padding: 12px;
   }
 }
 
+
 @media (max-width: 560px) {
+
   .page {
     padding: 40px 16px 36px;
-
     gap: 28px;
   }
 
@@ -1503,30 +1516,11 @@ body.download-open {
 
   .download-overlay {
     bottom: 10px;
-
     width: calc(100vw - 18px);
   }
 
   .download-modal-top {
     padding: 15px 16px;
-  }
-
-  .download-modal-info h3 {
-    font-size: 0.82rem;
-
-    padding-right: 20px;
-  }
-
-  .download-progress-row {
-    font-size: 0.65rem;
-  }
-
-  .download-details {
-    font-size: 0.61rem;
-  }
-
-  .download-modal::after {
-    display: none;
   }
 }
 
