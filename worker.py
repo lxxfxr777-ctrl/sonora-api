@@ -1,9 +1,12 @@
 import base64
+import json
 import os
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
@@ -19,13 +22,21 @@ BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip
 YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 
-# Keep the recommended mweb client first. web_embedded does not require a PO
-# token and can rescue public/embeddable videos when YouTube blocks the normal
-# web clients. Extra clients can be supplied in Render with
-# YTDLP_PLAYER_CLIENTS=mweb,web_embedded,tv.
+# Current yt-dlp guidance is to prefer the normal/default clients and use
+# web_embedded as a fallback. mweb has recently become unreliable on some
+# datacenter IPs even when a PO-token provider is available.
 PLAYER_CLIENTS = [
     item.strip()
-    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "mweb,web_embedded").split(",")
+    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "default,web_embedded").split(",")
+    if item.strip()
+]
+
+# A second profile is useful when YouTube rejects the default client set.
+# It deliberately avoids mweb as the first fallback because recent yt-dlp
+# reports show intermittent LOGIN_REQUIRED/403 responses for mweb.
+FALLBACK_PLAYER_CLIENTS = [
+    item.strip()
+    for item in os.getenv("YTDLP_FALLBACK_PLAYER_CLIENTS", "android_vr,web_embedded").split(",")
     if item.strip()
 ]
 
@@ -80,11 +91,8 @@ def _cookie_file() -> Optional[Path]:
         return COOKIES_FILE
     return None
 
-def _base_options() -> dict:
+def _base_options(player_clients: list[str]) -> dict:
     # yt-dlp's Python API expects extractor_args as nested dictionaries.
-    # IMPORTANT: do NOT append a fake "override" client. It is interpreted as
-    # an unsupported YouTube client and was visible as "Skipping unsupported
-    # client override" in the Render logs.
     options = {
         "quiet": False,
         "no_warnings": False,
@@ -96,9 +104,10 @@ def _base_options() -> dict:
         "socket_timeout": 30,
         "sleep_interval": 1,
         "max_sleep_interval": 3,
+        "sleep_interval_requests": 1,
         "extractor_args": {
             "youtube": {
-                "player_client": PLAYER_CLIENTS,
+                "player_client": player_clients,
             },
             "youtubepot-bgutilhttp": {
                 "base_url": [BGUTIL_URL],
@@ -120,13 +129,13 @@ def _base_options() -> dict:
 
     return options
 
-def ytdlp_info_options() -> dict:
-    options = _base_options()
+def ytdlp_info_options(player_clients: list[str]) -> dict:
+    options = _base_options(player_clients)
     options["skip_download"] = True
     return options
 
-def ytdlp_download_options(workdir: Path, fmt: str) -> dict:
-    options = _base_options()
+def ytdlp_download_options(workdir: Path, fmt: str, player_clients: list[str]) -> dict:
+    options = _base_options(player_clients)
     options.update({
         "outtmpl": str(workdir / "%(title).120s-%(id)s.%(ext)s"),
         "format": "bestaudio/best",
@@ -138,6 +147,77 @@ def ytdlp_download_options(workdir: Path, fmt: str) -> dict:
     })
     return options
 
+def _youtube_oembed(url: str) -> Optional[dict]:
+    """Fetch title/author/thumbnail without invoking the yt-dlp extractor.
+
+    This is intentionally only a metadata fallback. It does not bypass the
+    media-download authentication/rate-limit checks enforced by YouTube.
+    """
+    try:
+        endpoint = "https://www.youtube.com/oembed?url=" + quote(url, safe="") + "&format=json"
+        request = Request(
+            endpoint,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json",
+            },
+        )
+        with urlopen(request, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        if not isinstance(data, dict):
+            return None
+        return data
+    except Exception:
+        return None
+
+def _extract_info(url: str) -> dict:
+    """Try the primary client profile, then one conservative fallback."""
+    last_exc: Optional[Exception] = None
+    profiles = [PLAYER_CLIENTS]
+    if FALLBACK_PLAYER_CLIENTS and FALLBACK_PLAYER_CLIENTS != PLAYER_CLIENTS:
+        profiles.append(FALLBACK_PLAYER_CLIENTS)
+
+    for clients in profiles:
+        try:
+            with yt_dlp.YoutubeDL(ytdlp_info_options(clients)) as ydl:
+                return ydl.extract_info(url, download=False)
+        except Exception as exc:
+            last_exc = exc
+
+    assert last_exc is not None
+    raise last_exc
+
+def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, list[Path]]:
+    last_exc: Optional[Exception] = None
+    profiles = [PLAYER_CLIENTS]
+    if FALLBACK_PLAYER_CLIENTS and FALLBACK_PLAYER_CLIENTS != PLAYER_CLIENTS:
+        profiles.append(FALLBACK_PLAYER_CLIENTS)
+
+    for clients in profiles:
+        try:
+            with yt_dlp.YoutubeDL(ytdlp_download_options(workdir, fmt, clients)) as ydl:
+                data = ydl.extract_info(url, download=True)
+            files = [
+                p for p in workdir.iterdir()
+                if p.is_file() and p.suffix.lower() == f".{fmt}"
+            ]
+            if files:
+                return data, files
+            raise RuntimeError("yt-dlp completed but no converted audio file was produced.")
+        except Exception as exc:
+            last_exc = exc
+            # The same work directory may contain a partial artifact after a
+            # failed profile. Remove it before the next profile is attempted.
+            for item in workdir.iterdir():
+                if item.is_file():
+                    try:
+                        item.unlink()
+                    except OSError:
+                        pass
+
+    assert last_exc is not None
+    raise last_exc
+
 @app.get("/")
 def root():
     return {
@@ -145,6 +225,7 @@ def root():
         "service": "sonora-worker",
         "youtube": "render-local-worker",
         "player_clients": PLAYER_CLIENTS,
+        "fallback_player_clients": FALLBACK_PLAYER_CLIENTS,
         "cookies_configured": _cookie_file() is not None,
         "pot_provider": BGUTIL_URL,
     }
@@ -155,6 +236,8 @@ def health():
         "status": "ok",
         "cookies_configured": _cookie_file() is not None,
         "player_clients": PLAYER_CLIENTS,
+        "fallback_player_clients": FALLBACK_PLAYER_CLIENTS,
+        "pot_provider": BGUTIL_URL,
     }
 
 @app.post("/info")
@@ -162,19 +245,44 @@ def info(request: InfoRequest, authorization: Optional[str] = Header(default=Non
     check_token(authorization)
     url = clean_url(request.url)
     try:
-        with yt_dlp.YoutubeDL(ytdlp_info_options()) as ydl:
-            data = ydl.extract_info(url, download=False)
-        return {
-            "ok": True,
-            "id": data.get("id"),
-            "title": data.get("title"),
-            "uploader": data.get("uploader"),
-            "channel": data.get("channel"),
-            "duration": data.get("duration"),
-            "thumbnail": data.get("thumbnail"),
-            "webpage_url": data.get("webpage_url") or url,
-            "description": data.get("description"),
-        }
+        try:
+            data = _extract_info(url)
+            return {
+                "ok": True,
+                "id": data.get("id"),
+                "title": data.get("title"),
+                "uploader": data.get("uploader"),
+                "channel": data.get("channel"),
+                "duration": data.get("duration"),
+                "thumbnail": data.get("thumbnail"),
+                "webpage_url": data.get("webpage_url") or url,
+                "description": data.get("description"),
+                "metadata_source": "yt-dlp",
+            }
+        except Exception as ytdlp_exc:
+            # Restore the preview card even when YouTube blocks yt-dlp's
+            # player API. The media download still correctly fails until a
+            # valid YouTube session/cookie or another allowed route is used.
+            meta = _youtube_oembed(url)
+            if meta and meta.get("title"):
+                video_id = None
+                marker = "v="
+                if marker in url:
+                    video_id = url.split(marker, 1)[1].split("&", 1)[0]
+                return {
+                    "ok": True,
+                    "id": video_id,
+                    "title": meta.get("title"),
+                    "uploader": meta.get("author_name") or "",
+                    "channel": meta.get("author_name") or "",
+                    "duration": None,
+                    "thumbnail": meta.get("thumbnail_url") or (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else None),
+                    "webpage_url": url,
+                    "description": None,
+                    "metadata_source": "youtube-oembed-fallback",
+                    "yt_dlp_error": str(ytdlp_exc),
+                }
+            raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -188,11 +296,7 @@ def download(request: DownloadRequest, authorization: Optional[str] = Header(def
 
     workdir = Path(tempfile.mkdtemp(prefix="sonora-worker-"))
     try:
-        with yt_dlp.YoutubeDL(ytdlp_download_options(workdir, fmt)) as ydl:
-            data = ydl.extract_info(url, download=True)
-        files = [p for p in workdir.iterdir() if p.is_file() and p.suffix.lower() == f".{fmt}"]
-        if not files:
-            raise RuntimeError("yt-dlp completed but no converted audio file was produced.")
+        data, files = _download_with_clients(url, workdir, fmt)
         audio_file = files[0]
         return FileResponse(
             path=str(audio_file),
