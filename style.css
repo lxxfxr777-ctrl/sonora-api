@@ -1823,10 +1823,3 @@ body {
   }
 
 }
-/* SOLO AGRANDAR Y CENTRAR LA PORTADA EN PC */
-@media (min-width: 720px) {
-  .cover-stage {
-    width: 300px;
-    margin: 0 auto;
-  }
-}
