@@ -1731,54 +1731,114 @@ body {
   }
 }
 /* =========================================================
-   SONORA — ANCHO MÁS COMPACTO EN PC
+   SONORA — DISEÑO PC COMPACTO
+   SOLO AFECTA PANTALLAS GRANDES
+   CELULARES QUEDAN INTACTOS
    ========================================================= */
 
 @media (min-width: 721px) {
 
+  /* CONTENEDOR GENERAL */
   .page {
-    width: min(1000px, calc(100% - 48px));
-    max-width: 1000px;
+    width: 520px;
+    max-width: 520px;
     margin-left: auto;
     margin-right: auto;
   }
 
-  .link-panel,
-  .preview,
-  .player-panel {
-    width: 100%;
-    max-width: 1000px;
+  /* =======================================================
+     CAJA DEL LINK
+     ======================================================= */
+
+  .link-panel {
+    width: 520px;
+    max-width: 520px;
     margin-left: auto;
     margin-right: auto;
+    box-sizing: border-box;
   }
+
+  /* =======================================================
+     RESULTADO DE LA CANCIÓN
+     ======================================================= */
+
+  .preview {
+    width: 520px;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+
+    box-sizing: border-box;
+  }
+
+  /* =======================================================
+     PORTADA
+     ======================================================= */
 
   .cover-stage {
-    width: 240px;
-    max-width: 240px;
-    flex-shrink: 0;
+    width: 215px;
+    max-width: 215px;
+    min-width: 215px;
+
+    flex: 0 0 215px;
+
+    box-sizing: border-box;
   }
 
+  /* =======================================================
+     PANEL DE INFORMACIÓN
+     ======================================================= */
+
   .track-panel {
+    width: 289px;
+    max-width: 289px;
     min-width: 0;
-    width: 100%;
-    max-width: 100%;
+
+    flex: 1 1 auto;
+
+    box-sizing: border-box;
   }
+
+  /* =======================================================
+     TEXTOS
+     ======================================================= */
 
   .track-title,
   .track-artist,
   .player-now,
   .download-modal-info h3 {
-    min-width: 0;
     max-width: 100%;
+    min-width: 0;
     overflow-wrap: anywhere;
   }
+
+  /* =======================================================
+     REPRODUCTOR
+     ======================================================= */
+
+  .player-panel {
+    width: 520px;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+
+    box-sizing: border-box;
+  }
+
+  /* =======================================================
+     EVITAR DESBORDAMIENTOS
+     ======================================================= */
 
   .page,
   .link-panel,
   .preview,
+  .cover-stage,
   .track-panel,
-  .player-panel,
-  .cover-stage {
+  .player-panel {
     box-sizing: border-box;
   }
 
@@ -1786,40 +1846,43 @@ body {
 
 
 /* =========================================================
-   PANTALLAS MUY GRANDES
+   PC GRANDES
+   SI EL MONITOR ES ENORME, SIGUE SIENDO 520px
    ========================================================= */
 
-@media (min-width: 1500px) {
+@media (min-width: 1200px) {
 
   .page {
-    width: 1000px;
-    max-width: 1000px;
+    width: 520px;
+    max-width: 520px;
   }
 
   .link-panel,
   .preview,
   .player-panel {
-    max-width: 1000px;
+    width: 520px;
+    max-width: 520px;
   }
 
 }
 
 
 /* =========================================================
-   LAPTOPS / TABLETS GRANDES
+   LAPTOP / PC PEQUEÑO
    ========================================================= */
 
 @media (min-width: 721px) and (max-width: 1199px) {
 
   .page {
-    width: calc(100% - 40px);
-    max-width: 950px;
+    width: 520px;
+    max-width: calc(100% - 40px);
   }
 
   .link-panel,
   .preview,
   .player-panel {
-    max-width: 950px;
+    width: 520px;
+    max-width: calc(100% - 40px);
   }
 
 }
