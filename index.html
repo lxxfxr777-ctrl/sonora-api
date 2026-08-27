@@ -11,7 +11,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
+
 <body>
+
   <div class="bg" aria-hidden="true">
     <div class="aurora-layer aurora-1"></div>
     <div class="aurora-layer aurora-2"></div>
@@ -21,17 +23,32 @@
   </div>
 
   <main class="page">
+
     <header class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
-      <h1 class="brand-name">SONORA</h1>
-      <p class="brand-line">Pega el link, mira la portada y descarga tu canción.</p>
+
+      <h1 class="brand-name">
+        SONORA
+      </h1>
+
+      <p class="brand-line">
+        Pega el link, mira la portada y descarga tu canción.
+      </p>
     </header>
 
     <section class="link-panel" aria-label="Enlace de YouTube">
+
       <form id="search-form" novalidate>
-        <label for="url-input" class="field-label">Enlace de YouTube / YouTube Music</label>
+
+        <label
+          for="url-input"
+          class="field-label"
+        >
+          Enlace de YouTube / YouTube Music
+        </label>
 
         <div class="link-row">
+
           <input
             id="url-input"
             name="url"
@@ -43,99 +60,223 @@
             required
           >
 
-          <button type="submit" id="search-btn" class="btn btn-ghost">
+          <button
+            type="submit"
+            id="search-btn"
+            class="btn btn-ghost"
+          >
             Vista previa
           </button>
+
         </div>
+
       </form>
 
-      <p id="search-error" class="error" role="alert" hidden></p>
+      <p
+        id="search-error"
+        class="error"
+        role="alert"
+        hidden
+      ></p>
+
     </section>
 
-    <section id="preview" class="preview" hidden>
+    <section
+      id="preview"
+      class="preview"
+      hidden
+    >
 
       <div class="cover-stage">
+
         <div class="cover-frame">
-          <img id="preview-thumb" class="cover-art" src="" alt="">
+
+          <img
+            id="preview-thumb"
+            class="cover-art"
+            src=""
+            alt=""
+          >
+
         </div>
 
-        <div class="cover-glow" aria-hidden="true"></div>
+        <div
+          class="cover-glow"
+          aria-hidden="true"
+        ></div>
+
       </div>
 
       <div class="track-panel">
-        <h2 id="preview-title" class="track-title"></h2>
 
-        <p id="preview-artist" class="track-artist"></p>
+        <h2
+          id="preview-title"
+          class="track-title"
+        ></h2>
+
+        <p
+          id="preview-artist"
+          class="track-artist"
+        ></p>
 
         <div class="track-stats">
+
           <span class="stat">
-            <span class="stat-label">Duración</span>
-            <span id="preview-duration" class="stat-value">—</span>
+
+            <span class="stat-label">
+              Duración
+            </span>
+
+            <span
+              id="preview-duration"
+              class="stat-value"
+            >
+              —
+            </span>
+
           </span>
 
           <span class="stat">
-            <span class="stat-label">Formato</span>
-            <span id="preview-format-label" class="stat-value">MP3</span>
+
+            <span class="stat-label">
+              Formato
+            </span>
+
+            <span
+              id="preview-format-label"
+              class="stat-value"
+            >
+              MP3
+            </span>
+
           </span>
+
         </div>
 
-        <div class="format-picker" role="radiogroup" aria-label="Formato de audio">
+        <div
+          class="format-picker"
+          role="radiogroup"
+          aria-label="Formato de audio"
+        >
 
           <label class="chip">
-            <input type="radio" name="format" value="mp3" checked>
+            <input
+              type="radio"
+              name="format"
+              value="mp3"
+              checked
+            >
             <span>MP3</span>
           </label>
 
           <label class="chip">
-            <input type="radio" name="format" value="m4a">
+            <input
+              type="radio"
+              name="format"
+              value="m4a"
+            >
             <span>M4A</span>
           </label>
 
           <label class="chip">
-            <input type="radio" name="format" value="opus">
+            <input
+              type="radio"
+              name="format"
+              value="opus"
+            >
             <span>OPUS</span>
           </label>
 
           <label class="chip">
-            <input type="radio" name="format" value="wav">
+            <input
+              type="radio"
+              name="format"
+              value="wav"
+            >
             <span>WAV</span>
           </label>
 
         </div>
 
-        <p id="format-note" class="format-note" hidden>
+        <p
+          id="format-note"
+          class="format-note"
+          hidden
+        >
           WAV no incrusta portada; los demás formatos sí.
         </p>
 
-        <button type="button" id="download-btn" class="btn btn-download">
+        <button
+          type="button"
+          id="download-btn"
+          class="btn btn-download"
+        >
 
-          <span class="eq" aria-hidden="true">
+          <span
+            class="eq"
+            aria-hidden="true"
+          >
             <i></i>
             <i></i>
             <i></i>
             <i></i>
           </span>
 
-          <span class="download-btn-label">Descargar</span>
+          <span class="download-btn-label">
+            Descargar
+          </span>
 
         </button>
 
-        <p id="download-status" class="status" role="status" hidden></p>
+        <p
+          id="download-status"
+          class="status"
+          role="status"
+          hidden
+        ></p>
 
       </div>
 
-      <div class="player-panel" aria-label="Reproductor">
+      <div
+        class="player-panel"
+        aria-label="Reproductor"
+      >
 
-        <div id="yt-player" class="yt-player"></div>
+        <div
+          id="yt-player"
+          class="yt-player"
+        ></div>
 
-        <button type="button" id="play-btn" class="play-btn" aria-label="Reproducir">
+        <button
+          type="button"
+          id="play-btn"
+          class="play-btn"
+          aria-label="Reproducir"
+        >
 
-          <svg id="play-icon" class="play-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 5.5v13l11-6.5-11-6.5z" fill="currentColor"></path>
+          <svg
+            id="play-icon"
+            class="play-icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              d="M8 5.5v13l11-6.5-11-6.5z"
+              fill="currentColor"
+            ></path>
           </svg>
 
-          <svg id="pause-icon" class="pause-icon" viewBox="0 0 24 24" hidden aria-hidden="true">
-            <path d="M7 5h4v14H7V5zm6 0h4v14h-4V5z" fill="currentColor"></path>
+          <svg
+            id="pause-icon"
+            class="pause-icon"
+            viewBox="0 0 24 24"
+            hidden
+            aria-hidden="true"
+          >
+            <path
+              d="M7 5h4v14H7V5zm6 0h4v14h-4V5z"
+              fill="currentColor"
+            ></path>
           </svg>
 
         </button>
@@ -143,10 +284,18 @@
         <div class="player-main">
 
           <div class="player-meta">
-            <span class="player-label">Escuchar ahora</span>
-            <span id="player-now" class="player-now">
+
+            <span class="player-label">
+              Escuchar ahora
+            </span>
+
+            <span
+              id="player-now"
+              class="player-now"
+            >
               Listo para reproducir
             </span>
+
           </div>
 
           <div class="seek-wrap">
@@ -163,28 +312,52 @@
             >
 
             <div class="player-times">
-              <span id="time-current">0:00</span>
-              <span id="time-total">0:00</span>
+
+              <span id="time-current">
+                0:00
+              </span>
+
+              <span id="time-total">
+                0:00
+              </span>
+
             </div>
 
           </div>
 
         </div>
 
-        <p id="player-status" class="player-status" role="status" hidden></p>
+        <p
+          id="player-status"
+          class="player-status"
+          role="status"
+          hidden
+        ></p>
 
       </div>
 
     </section>
 
     <footer class="footer">
-      <p>API local · <a href="/docs">Documentación</a></p>
+
+      <p>
+        API local ·
+        <a href="/docs">
+          Documentación
+        </a>
+      </p>
+
     </footer>
 
   </main>
 
   <!-- Ventana de progreso de descarga -->
-  <div id="download-overlay" class="download-overlay" hidden>
+
+  <div
+    id="download-overlay"
+    class="download-overlay"
+    hidden
+  >
 
     <div
       class="download-modal"
@@ -214,7 +387,9 @@
 
           <div class="download-progress-row">
 
-            <span id="download-percent">0%</span>
+            <span id="download-percent">
+              0%
+            </span>
 
             <span id="download-size">
               Preparando...
@@ -223,10 +398,12 @@
           </div>
 
           <div class="download-progress-track">
+
             <div
               id="download-progress-bar"
               class="download-progress-bar"
             ></div>
+
           </div>
 
           <div class="download-details">
