@@ -1,0 +1,17 @@
+name: Render API Health Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Sonora API
+        run: |
+          set -e
+          response=$(curl -sS -L --max-time 30 -o /dev/null -w "%{http_code}" https://sonora-api-ltv9.onrender.com/health)
+          echo "HTTP status: $response"
+          test "$response" = "200"
