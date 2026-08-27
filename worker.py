@@ -1,3 +1,4 @@
+import base64
 import os
 import shutil
 import tempfile
@@ -15,6 +16,8 @@ WORKER_TOKEN = os.getenv("WORKER_TOKEN", "").strip()
 ALLOWED_FORMATS = {"mp3": "mp3", "m4a": "m4a", "opus": "opus", "wav": "wav"}
 COOKIES_FILE = Path(os.getenv("YTDLP_COOKIES_FILE", "/app/cookies.txt"))
 BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip("/")
+YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
+YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 
 class InfoRequest(BaseModel):
     url: str
@@ -35,12 +38,37 @@ def clean_url(url: str) -> str:
         raise HTTPException(status_code=400, detail="URL is required")
     if not any(host in url for host in ("youtube.com/", "youtu.be/", "music.youtube.com/")):
         raise HTTPException(status_code=400, detail="Only YouTube URLs are supported")
+    # YouTube Music and YouTube share the same video IDs. Normalizing the
+    # public page avoids an unnecessary Music-specific webpage request.
+    url = url.replace("https://music.youtube.com/watch?", "https://www.youtube.com/watch?")
+    url = url.replace("http://music.youtube.com/watch?", "https://www.youtube.com/watch?")
     return url
 
+def _ensure_env_cookie_file() -> Optional[Path]:
+    """Materialize an optional Render secret containing Netscape cookies.
+
+    The secret is never committed to GitHub. This lets Render provide the
+    same cookie file that made the existing local worker work.
+    """
+    if not YTDLP_COOKIES_B64:
+        return None
+    try:
+        data = base64.b64decode(YTDLP_COOKIES_B64, validate=True)
+    except Exception as exc:
+        raise RuntimeError("YTDLP_COOKIES_B64 is not valid base64") from exc
+    if not data:
+        return None
+    path = Path(tempfile.gettempdir()) / "sonora-ytdlp-cookies.txt"
+    path.write_bytes(data)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
 def _base_options() -> dict:
-    # IMPORTANT: yt-dlp's Python API expects extractor arguments in the
-    # nested-dict form. The old list form can silently fail to select mweb.
-    # That was why Render logs never showed the bgutil PO-token provider.
+    # Use the CLI-equivalent extractor-arg representation. It is supported by
+    # yt-dlp's Python API and avoids version-dependent parsing of nested values.
     options = {
         "quiet": False,
         "no_warnings": False,
@@ -50,13 +78,11 @@ def _base_options() -> dict:
         "retries": 3,
         "extractor_retries": 3,
         "socket_timeout": 30,
+        "sleep_interval": 1,
+        "max_sleep_interval": 3,
         "extractor_args": {
-            "youtube": {
-                "player_client": ["mweb"],
-            },
-            "youtubepot-bgutilhttp": {
-                "base_url": [BGUTIL_URL],
-            },
+            "youtube": ["player_client=mweb"],
+            "youtubepot-bgutilhttp": [f"base_url={BGUTIL_URL}"],
         },
         "js_runtimes": {
             "deno": {
@@ -65,10 +91,16 @@ def _base_options() -> dict:
         },
     }
 
-    # Use cookies when they are deliberately supplied to the Render service.
-    # Never commit account cookies to the public repository.
-    if COOKIES_FILE.is_file() and COOKIES_FILE.stat().st_size > 0:
+    # Prefer an explicitly supplied Render secret, otherwise use /app/cookies.txt
+    # when the image contains one. Never commit account cookies to the repository.
+    env_cookie_file = _ensure_env_cookie_file()
+    if env_cookie_file:
+        options["cookiefile"] = str(env_cookie_file)
+    elif COOKIES_FILE.is_file() and COOKIES_FILE.stat().st_size > 0:
         options["cookiefile"] = str(COOKIES_FILE)
+
+    if YTDLP_PROXY:
+        options["proxy"] = YTDLP_PROXY
 
     return options
 
