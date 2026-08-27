@@ -1568,3 +1568,166 @@ body.cover-black .url-input {
 body.cover-black .link-panel .field-label {
   color: rgba(255, 255, 255, 0.72);
 }
+
+/* =========================================================
+   ESTABILIDAD RESPONSIVE — EVITA MOVIMIENTOS AL CARGAR INFO
+   ========================================================= */
+
+/* Reserva desde el inicio el espacio del scrollbar para que
+   la página no cambie de posición cuando aparece .preview. */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+}
+
+body {
+  overflow-x: clip;
+}
+
+.page,
+.link-panel,
+.preview,
+.track-panel,
+.player-panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* El contenido recién cargado no debe provocar un ajuste
+   horizontal ni alterar el ancho de los elementos existentes. */
+.preview {
+  overflow: visible;
+  min-height: 0;
+}
+
+.link-panel,
+.track-panel,
+.player-panel {
+  min-width: 0;
+}
+
+.url-input,
+.btn,
+.stat,
+.chip,
+.player-main {
+  min-width: 0;
+}
+
+/* Portada proporcional y estable en cualquier teléfono. */
+.cover-stage {
+  width: clamp(220px, 74vw, 320px);
+  max-width: 100%;
+}
+
+.cover-frame,
+.cover-art {
+  width: 100%;
+  height: 100%;
+}
+
+/* Evita que textos largos creen un ensanchamiento inesperado. */
+.track-title,
+.track-artist,
+.player-now,
+.download-modal-info h3 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .page {
+    width: 100%;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-top: 34px;
+    padding-bottom: max(32px, env(safe-area-inset-bottom));
+    gap: 24px;
+  }
+
+  .link-panel,
+  .track-panel,
+  .player-panel {
+    border-radius: 18px;
+  }
+
+  .link-panel {
+    padding: 18px;
+  }
+
+  .track-panel {
+    padding: 18px;
+    gap: 12px;
+  }
+
+  .track-title {
+    font-size: clamp(1.55rem, 7vw, 2rem);
+    line-height: 1.08;
+  }
+
+  .track-artist {
+    font-size: 0.92rem;
+  }
+
+  .track-stats {
+    gap: 8px;
+  }
+
+  .stat {
+    padding: 11px 12px;
+  }
+
+  .chip span {
+    padding: 8px 12px;
+  }
+
+  .player-panel {
+    gap: 12px;
+    padding: 13px 14px;
+  }
+
+  .play-btn {
+    width: 52px;
+    height: 52px;
+  }
+
+  .player-main {
+    flex-basis: calc(100% - 64px);
+  }
+}
+
+@media (max-width: 360px) {
+  .page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .link-panel,
+  .track-panel {
+    padding: 16px;
+  }
+
+  .cover-stage {
+    width: min(230px, 74vw);
+  }
+
+  .track-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-label {
+    font-size: 0.66rem;
+  }
+
+  .stat-value {
+    font-size: 1.05rem;
+  }
+}
+
