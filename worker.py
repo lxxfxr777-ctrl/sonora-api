@@ -19,6 +19,16 @@ BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip
 YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 
+# Keep the recommended mweb client first. web_embedded does not require a PO
+# token and can rescue public/embeddable videos when YouTube blocks the normal
+# web clients. Extra clients can be supplied in Render with
+# YTDLP_PLAYER_CLIENTS=mweb,web_embedded,tv.
+PLAYER_CLIENTS = [
+    item.strip()
+    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "mweb,web_embedded").split(",")
+    if item.strip()
+]
+
 class InfoRequest(BaseModel):
     url: str
 
@@ -62,10 +72,19 @@ def _ensure_env_cookie_file() -> Optional[Path]:
         pass
     return path
 
+def _cookie_file() -> Optional[Path]:
+    env_cookie_file = _ensure_env_cookie_file()
+    if env_cookie_file:
+        return env_cookie_file
+    if COOKIES_FILE.is_file() and COOKIES_FILE.stat().st_size > 0:
+        return COOKIES_FILE
+    return None
+
 def _base_options() -> dict:
-    # IMPORTANT: yt-dlp's Python API uses the nested extractor_args form.
-    # The previous list form did not actually select mweb in Render, which is
-    # why the logs showed visionos/web instead and never requested bgutil.
+    # yt-dlp's Python API expects extractor_args as nested dictionaries.
+    # IMPORTANT: do NOT append a fake "override" client. It is interpreted as
+    # an unsupported YouTube client and was visible as "Skipping unsupported
+    # client override" in the Render logs.
     options = {
         "quiet": False,
         "no_warnings": False,
@@ -79,7 +98,7 @@ def _base_options() -> dict:
         "max_sleep_interval": 3,
         "extractor_args": {
             "youtube": {
-                "player_client": ["mweb", "override"],
+                "player_client": PLAYER_CLIENTS,
             },
             "youtubepot-bgutilhttp": {
                 "base_url": [BGUTIL_URL],
@@ -92,11 +111,9 @@ def _base_options() -> dict:
         },
     }
 
-    env_cookie_file = _ensure_env_cookie_file()
-    if env_cookie_file:
-        options["cookiefile"] = str(env_cookie_file)
-    elif COOKIES_FILE.is_file() and COOKIES_FILE.stat().st_size > 0:
-        options["cookiefile"] = str(COOKIES_FILE)
+    cookie_file = _cookie_file()
+    if cookie_file:
+        options["cookiefile"] = str(cookie_file)
 
     if YTDLP_PROXY:
         options["proxy"] = YTDLP_PROXY
@@ -123,11 +140,22 @@ def ytdlp_download_options(workdir: Path, fmt: str) -> dict:
 
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "sonora-worker", "youtube": "render-local-worker"}
+    return {
+        "status": "ok",
+        "service": "sonora-worker",
+        "youtube": "render-local-worker",
+        "player_clients": PLAYER_CLIENTS,
+        "cookies_configured": _cookie_file() is not None,
+        "pot_provider": BGUTIL_URL,
+    }
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "cookies_configured": _cookie_file() is not None,
+        "player_clients": PLAYER_CLIENTS,
+    }
 
 @app.post("/info")
 def info(request: InfoRequest, authorization: Optional[str] = Header(default=None)):
