@@ -45,11 +45,7 @@ def clean_url(url: str) -> str:
     return url
 
 def _ensure_env_cookie_file() -> Optional[Path]:
-    """Materialize an optional Render secret containing Netscape cookies.
-
-    The secret is never committed to GitHub. This lets Render provide the
-    same cookie file that made the existing local worker work.
-    """
+    """Materialize an optional Render secret containing Netscape cookies."""
     if not YTDLP_COOKIES_B64:
         return None
     try:
@@ -67,8 +63,9 @@ def _ensure_env_cookie_file() -> Optional[Path]:
     return path
 
 def _base_options() -> dict:
-    # Use the CLI-equivalent extractor-arg representation. It is supported by
-    # yt-dlp's Python API and avoids version-dependent parsing of nested values.
+    # IMPORTANT: yt-dlp's Python API uses the nested extractor_args form.
+    # The previous list form did not actually select mweb in Render, which is
+    # why the logs showed visionos/web instead and never requested bgutil.
     options = {
         "quiet": False,
         "no_warnings": False,
@@ -81,8 +78,12 @@ def _base_options() -> dict:
         "sleep_interval": 1,
         "max_sleep_interval": 3,
         "extractor_args": {
-            "youtube": ["player_client=mweb"],
-            "youtubepot-bgutilhttp": [f"base_url={BGUTIL_URL}"],
+            "youtube": {
+                "player_client": ["mweb", "override"],
+            },
+            "youtubepot-bgutilhttp": {
+                "base_url": [BGUTIL_URL],
+            },
         },
         "js_runtimes": {
             "deno": {
@@ -91,8 +92,6 @@ def _base_options() -> dict:
         },
     }
 
-    # Prefer an explicitly supplied Render secret, otherwise use /app/cookies.txt
-    # when the image contains one. Never commit account cookies to the repository.
     env_cookie_file = _ensure_env_cookie_file()
     if env_cookie_file:
         options["cookiefile"] = str(env_cookie_file)
