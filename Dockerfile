@@ -1,7 +1,6 @@
 # =========================================================
 # ETAPA 1 - COMPILAR BGUTIL PO TOKEN PROVIDER
 # =========================================================
-
 FROM node:25-bookworm-slim AS bgutil-builder
 
 RUN apt-get update \
@@ -16,15 +15,13 @@ RUN npm ci --no-audit --no-fund
 RUN npx tsc
 
 # =========================================================
-# ETAPA 2 - RUNTIME DENO PARA yt-dlp / YOUTUBE
+# ETAPA 2 - DENO PARA yt-dlp
 # =========================================================
-
 FROM denoland/deno:debian-2.6.9 AS deno-runtime
 
 # =========================================================
-# ETAPA 3 - SONORA API + WORKER LOCAL
+# ETAPA 3 - SONORA API + WORKER
 # =========================================================
-
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -59,36 +56,10 @@ COPY --from=bgutil-builder /bgutil/server/package.json /opt/bgutil/server/packag
 
 COPY . .
 
-RUN if [ -f /app/cookies.txt ]; then chmod 600 /app/cookies.txt || true; fi
+RUN chmod +x /app/start.sh \
+    && if [ -f /app/cookies.txt ]; then chmod 600 /app/cookies.txt || true; fi
 
 EXPOSE 10000
 
-# Start bgutil, wait until its HTTP endpoint is actually ready, then start
-# the local worker and the public Sonora API. This prevents yt-dlp from
-# starting before the PO-token server can answer /ping.
-CMD ["sh", "-c", "\
-    set -e; \
-    echo '=== SONORA: starting bgutil ==='; \
-    node /opt/bgutil/server/build/main.js --port 4416 & BGUTIL_PID=$!; \
-    READY=0; \
-    for i in $(seq 1 30); do \
-      if ! kill -0 $BGUTIL_PID 2>/dev/null; then \
-        echo '[ERROR] BGUTIL process exited'; exit 1; \
-      fi; \
-      if curl -fsS --max-time 2 http://127.0.0.1:4416/ping >/dev/null 2>&1; then \
-        READY=1; break; \
-      fi; \
-      sleep 1; \
-    done; \
-    if [ "$READY" -ne 1 ]; then \
-      echo '[ERROR] BGUTIL did not become ready on 127.0.0.1:4416'; exit 1; \
-    fi; \
-    echo '[OK] bgutil on 127.0.0.1:4416'; \
-    echo '=== SONORA: starting local worker ==='; \
-    python -m uvicorn worker:app --host 127.0.0.1 --port 8787 & WORKER_PID=$!; \
-    sleep 2; \
-    kill -0 $WORKER_PID 2>/dev/null || { echo '[ERROR] WORKER failed'; exit 1; }; \
-    echo '[OK] worker on 127.0.0.1:8787'; \
-    echo '=== SONORA: starting public API ==='; \
-    exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} \
-"]
+# Dedicated entrypoint avoids Render/Docker shell parsing problems.
+CMD ["/app/start.sh"]
