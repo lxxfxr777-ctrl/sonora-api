@@ -1,0 +1,22 @@
+name: Validar imagen de Render
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Construir imagen Docker
+        run: docker build --tag sonora-api:test .
+
+      - name: Comprobar que Python compila
+        run: docker run --rm sonora-api:test python -m compileall -q /app
