@@ -1823,3 +1823,49 @@ body {
   }
 
 }
+/* =========================================================
+   PORTADA — AJUSTE SOLO PARA PANTALLAS GRANDES
+   ========================================================= */
+
+@media (min-width: 721px) {
+
+  .preview {
+    grid-template-columns: 240px minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .cover-stage {
+    width: 240px;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    justify-self: center;
+  }
+
+  .cover-stage img,
+  .cover-image {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* En pantallas muy grandes mantenemos todo compacto */
+@media (min-width: 1200px) {
+
+  .page {
+    width: 600px;
+  }
+
+  .preview {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .cover-stage {
+    width: 240px;
+  }
+}
