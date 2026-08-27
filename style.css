@@ -1731,82 +1731,39 @@ body {
   }
 }
 /* =========================================================
-   SONORA — LÍMITE PARA PANTALLAS GRANDES
-   NO MODIFICA EL DISEÑO DE CELULARES
+   SONORA — ANCHO MÁS COMPACTO EN PC
    ========================================================= */
 
 @media (min-width: 721px) {
 
-  /*
-     Contenedor principal:
-     evita que SONORA se estire demasiado
-     en monitores grandes.
-  */
   .page {
-    width: min(1180px, calc(100% - 48px));
-    max-width: 1180px;
+    width: min(1000px, calc(100% - 48px));
+    max-width: 1000px;
     margin-left: auto;
     margin-right: auto;
   }
 
-  /*
-     Panel del enlace:
-     mantiene exactamente el mismo ancho
-     que el resto de la página.
-  */
-  .link-panel {
-    width: 100%;
-    max-width: 1180px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  /*
-     Zona de información de la canción.
-     Se mantiene dentro del mismo límite.
-  */
-  .preview {
-    width: 100%;
-    max-width: 1180px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  /*
-     Reproductor:
-     nunca se sale del ancho principal.
-  */
+  .link-panel,
+  .preview,
   .player-panel {
     width: 100%;
-    max-width: 1180px;
+    max-width: 1000px;
     margin-left: auto;
     margin-right: auto;
   }
 
-  /*
-     La portada mantiene un tamaño controlado
-     en escritorio.
-  */
   .cover-stage {
-    width: 280px;
-    max-width: 280px;
+    width: 240px;
+    max-width: 240px;
     flex-shrink: 0;
   }
 
-  /*
-     El panel de la canción puede crecer,
-     pero solamente dentro del contenedor.
-  */
   .track-panel {
     min-width: 0;
     width: 100%;
     max-width: 100%;
   }
 
-  /*
-     Evita que títulos o textos largos
-     provoquen crecimiento horizontal.
-  */
   .track-title,
   .track-artist,
   .player-now,
@@ -1814,6 +1771,15 @@ body {
     min-width: 0;
     max-width: 100%;
     overflow-wrap: anywhere;
+  }
+
+  .page,
+  .link-panel,
+  .preview,
+  .track-panel,
+  .player-panel,
+  .cover-stage {
+    box-sizing: border-box;
   }
 
 }
@@ -1826,61 +1792,34 @@ body {
 @media (min-width: 1500px) {
 
   .page {
-    width: 1180px;
-    max-width: 1180px;
+    width: 1000px;
+    max-width: 1000px;
   }
 
   .link-panel,
   .preview,
   .player-panel {
-    max-width: 1180px;
+    max-width: 1000px;
   }
 
 }
 
 
 /* =========================================================
-   TABLETS / LAPTOPS PEQUEÑOS
-   NO CAMBIA EL COMPORTAMIENTO MÓVIL ACTUAL
+   LAPTOPS / TABLETS GRANDES
    ========================================================= */
 
 @media (min-width: 721px) and (max-width: 1199px) {
 
   .page {
     width: calc(100% - 40px);
-    max-width: 1100px;
+    max-width: 950px;
   }
 
   .link-panel,
   .preview,
   .player-panel {
-    max-width: 1100px;
-  }
-
-}
-
-
-/* =========================================================
-   SEGURIDAD EXTRA CONTRA DESBORDAMIENTO
-   ========================================================= */
-
-@media (min-width: 721px) {
-
-  .page,
-  .link-panel,
-  .preview,
-  .track-panel,
-  .player-panel,
-  .cover-stage {
-    box-sizing: border-box;
-  }
-
-  .preview {
-    min-width: 0;
-  }
-
-  .preview > * {
-    min-width: 0;
+    max-width: 950px;
   }
 
 }
