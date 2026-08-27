@@ -1463,21 +1463,7 @@ body.download-open {
     margin-right: auto;
   }
 
-  .preview {
-    grid-template-columns: 210px 1fr;
-    gap: 20px;
-    align-items: stretch;
-  }
 
-  .cover-stage {
-    width: 210px;
-    margin: 0;
-  }
-
-  .player-panel {
-    grid-column: 1 / -1;
-  }
-}
 
 
 /* =========================================================
@@ -1771,11 +1757,11 @@ body {
      * Así cargar el título, artista, estadísticas,
      * formatos, etc. NO modifica el ancho.
      */
-    grid-template-columns: 250px minmax(0, 1fr);
+    grid-template-columns: 260px minmax(0, 1fr);
 
     gap: 22px;
 
-    align-items: stretch;
+    align-items: start;
 
     margin-left: auto;
     margin-right: auto;
@@ -1791,22 +1777,20 @@ body {
 
   /* ---------------------------------------------------------
      PORTADA
-     Ya NO tiene alto fijo: se estira (align-self: stretch)
-     para igualar siempre la altura del recuadro de texto,
-     sin importar si el título es corto o larguísimo.
+     Tamaño 100% FIJO (cuadrado perfecto). No depende del
+     contenido del panel de texto ni cambia entre canciones.
      --------------------------------------------------------- */
 
   .cover-stage {
-    width: 250px;
-    min-width: 250px;
-    max-width: 250px;
+    width: 260px;
+    height: 260px;
 
-    height: auto;
-    min-height: 250px;
+    min-width: 260px;
+    max-width: 260px;
+    min-height: 260px;
+    max-height: 260px;
 
     margin: 0;
-
-    align-self: stretch;
 
     flex-shrink: 0;
   }
@@ -1820,6 +1804,10 @@ body {
 
   /* ---------------------------------------------------------
      CUADRO DE INFORMACIÓN
+     Altura 100% FIJA, igual siempre, sin importar el
+     contenido. Si el contenido es más corto, se centra
+     verticalmente; si es más largo, se recorta con "..."
+     en vez de estirar la caja.
      --------------------------------------------------------- */
 
   .track-panel {
@@ -1827,19 +1815,23 @@ body {
     min-width: 0;
     max-width: none;
 
+    height: 260px;
+    min-height: 260px;
+    max-height: 260px;
+
     /*
      * Este es importante:
-     * el padding no puede cambiar el ancho exterior.
+     * el padding no puede cambiar el ancho ni el alto exterior.
      */
     box-sizing: border-box;
 
     /*
-     * El cuadro mantiene su espacio aunque
-     * aparezca información larga.
+     * El cuadro NUNCA crece más allá de su alto fijo,
+     * pase lo que pase con el contenido.
      */
     overflow: hidden;
 
-    padding: 24px;
+    padding: 22px 24px;
 
     justify-content: center;
   }
@@ -1847,19 +1839,21 @@ body {
 
   /* ---------------------------------------------------------
      TÍTULO
-     Limitado a 3 líneas como máximo (con puntos suspensivos)
-     para que un nombre de canción kilométrico no estire el
-     panel muchísimo más que la portada.
+     Limitado a 2 líneas como máximo (con puntos suspensivos)
+     para que un nombre de canción kilométrico jamás rompa
+     la altura fija del panel.
      --------------------------------------------------------- */
 
   .track-title {
     min-width: 0;
     max-width: 100%;
 
-    font-size: clamp(1.8rem, 3vw, 2.25rem);
+    font-size: clamp(1.5rem, 2.6vw, 1.95rem);
 
     overflow-wrap: anywhere;
     word-break: break-word;
+
+    -webkit-line-clamp: 2;
   }
 
 
