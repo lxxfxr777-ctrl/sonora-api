@@ -1442,22 +1442,26 @@ body.download-open {
    RESPONSIVE
    ========================================================= */
 
-@media (min-width: 720px) {
+@media (min-width: 1000px) {
+  .page {
+    width: min(560px, calc(100% - 40px));
+    margin: 0 auto;
+  }
+
   .preview {
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: 210px 1fr;
     align-items: center;
   }
 
   .cover-stage {
-    width: 100%;
-    margin: 0;
+    width: 210px;
+    margin: 0 auto;
   }
 
   .player-panel {
     grid-column: 1 / -1;
   }
 }
-
 @media (max-width: 720px) {
   .download-overlay {
     bottom: 16px;
