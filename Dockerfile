@@ -4,7 +4,6 @@
 
 FROM node:25-bookworm-slim AS bgutil-builder
 
-# Git es necesario para descargar bgutil
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
@@ -13,24 +12,20 @@ RUN apt-get update \
 
 WORKDIR /bgutil
 
-# La versión 1.3.1 es la versión del servidor disponible
-# como tag en el repositorio.
+# Keep the server version aligned with the Python plugin in requirements.txt.
 RUN git clone \
     --depth 1 \
     --single-branch \
-    --branch 1.3.1 \
+    --branch 1.3.2 \
     https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
     .
 
 WORKDIR /bgutil/server
 
-# Instalar dependencias completas porque necesitamos
-# TypeScript para compilar el servidor.
 RUN npm ci \
     --no-audit \
     --no-fund
 
-# Compilar TypeScript
 RUN npx tsc
 
 
@@ -42,7 +37,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    NODE_PATH=/usr/local/lib/node_modules
+    NODE_PATH=/usr/local/lib/node_modules \
+    YTDLP_POT_PROVIDER_URL=http://127.0.0.1:4416
 
 # =========================================================
 # DEPENDENCIAS DEL SISTEMA
@@ -57,15 +53,12 @@ RUN apt-get update \
 
 
 # =========================================================
-# COPIAR NODE.JS DESDE LA IMAGEN OFICIAL
+# COPIAR NODE.JS
 # =========================================================
 
 COPY --from=bgutil-builder /usr/local/bin/node /usr/local/bin/node
-
 COPY --from=bgutil-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 
-
-# Crear enlaces para que node esté disponible
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && node --version \
@@ -111,19 +104,9 @@ COPY --from=bgutil-builder \
 
 COPY . .
 
-
-# =========================================================
-# COOKIES OPCIONALES
-# =========================================================
-
 RUN if [ -f /app/cookies.txt ]; then \
         chmod 600 /app/cookies.txt || true; \
     fi
-
-
-# =========================================================
-# PUERTO
-# =========================================================
 
 EXPOSE 10000
 
@@ -131,15 +114,8 @@ EXPOSE 10000
 # =========================================================
 # ARRANQUE
 # =========================================================
-#
-# PROCESO 1:
-# BGUTIL
-# http://127.0.0.1:4416
-#
-# PROCESO 2:
-# FASTAPI
-# http://0.0.0.0:${PORT}
-#
+# BGUTIL: http://127.0.0.1:4416
+# FASTAPI: http://0.0.0.0:${PORT}
 # =========================================================
 
 CMD ["sh", "-c", "\
@@ -155,7 +131,7 @@ CMD ["sh", "-c", "\
     fi; \
     echo '[OK] BGUTIL funcionando en 127.0.0.1:4416'; \
     echo '========================================'; \
-    echo ' SONORA - FASTAPI'; \
+    echo ' SONORA - FASTAPI (SIN WORKER EXTERNO)'; \
     echo '========================================'; \
     exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} \
 "]
