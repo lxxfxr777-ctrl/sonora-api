@@ -23,25 +23,27 @@ YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 USE_COOKIES = os.getenv("YTDLP_USE_COOKIES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
-# YouTube changes its extraction requirements frequently.  Keep clients
-# isolated so one blocked client does not poison the next attempt.
-PLAYER_CLIENTS = [
-    item.strip()
-    for item in os.getenv(
-        "YTDLP_PLAYER_CLIENTS",
-        "android_vr,web_embedded,web_safari,mweb",
-    ).split(",")
-    if item.strip()
+# YouTube changes which player clients are accepted frequently.  The order
+# below deliberately starts with clients that can work without account
+# cookies, then falls back to additional clients.
+PLAYER_CLIENT_PROFILES = [
+    ["tv", "web_safari"],
+    ["web_safari"],
+    ["web_embedded"],
+    ["android_vr"],
+    ["mweb"],
+    ["tv_downgraded"],
 ]
 
-FALLBACK_PLAYER_CLIENTS = [
-    item.strip()
-    for item in os.getenv(
-        "YTDLP_FALLBACK_PLAYER_CLIENTS",
-        "tv_simply",
-    ).split(",")
-    if item.strip()
-]
+# Allow Render environment variables to override the profiles without code
+# changes. Example: YTDLP_PLAYER_PROFILES=tv,web_safari;web_embedded;android_vr
+_profiles_env = os.getenv("YTDLP_PLAYER_PROFILES", "").strip()
+if _profiles_env:
+    PLAYER_CLIENT_PROFILES = [
+        [part.strip() for part in group.split(",") if part.strip()]
+        for group in _profiles_env.split(";")
+        if group.strip()
+    ] or PLAYER_CLIENT_PROFILES
 
 class InfoRequest(BaseModel):
     url: str
@@ -82,8 +84,6 @@ def _ensure_env_cookie_file() -> Optional[Path]:
     return path
 
 def _cookie_file() -> Optional[Path]:
-    # Cookies are OFF by default.  This prevents an expired/stale browser
-    # session from turning otherwise public videos into LOGIN_REQUIRED.
     if not USE_COOKIES:
         return None
     env_cookie_file = _ensure_env_cookie_file()
@@ -93,23 +93,29 @@ def _cookie_file() -> Optional[Path]:
         return COOKIES_FILE
     return None
 
-def _base_options(player_clients: list[str], *, download: bool = False) -> dict:
+def _base_options(player_clients: list[str]) -> dict:
     options = {
         "quiet": False,
         "no_warnings": False,
         "noplaylist": True,
         "verbose": True,
         "force_ipv4": True,
-        "retries": 4,
-        "fragment_retries": 4,
-        "extractor_retries": 3,
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_retries": 2,
         "socket_timeout": 30,
-        "sleep_interval": 1,
-        "max_sleep_interval": 3,
-        "sleep_interval_requests": 1,
+        "sleep_interval": 2,
+        "max_sleep_interval": 5,
+        "sleep_interval_requests": 2,
         "extractor_args": {
             "youtube": {
                 "player_client": player_clients,
+                # The initial webpage request is one of the requests most
+                # likely to receive HTTP 429 on datacenter IPs. The player
+                # clients can still be queried directly after it is skipped.
+                "player_skip": ["webpage"],
+                "webpage_client": "web_safari",
+                "fetch_pot": "auto",
             },
             "youtubepot-bgutilhttp": {
                 "base_url": BGUTIL_URL,
@@ -137,16 +143,12 @@ def ytdlp_info_options(player_clients: list[str]) -> dict:
     return options
 
 def ytdlp_download_options(workdir: Path, fmt: str, player_clients: list[str]) -> dict:
-    options = _base_options(player_clients, download=True)
+    options = _base_options(player_clients)
 
-    # android_vr can still expose the legacy pre-merged format 18 even when
-    # YouTube blocks the separate GVS audio formats.  Asking for 18 first lets
-    # ffmpeg extract the audio from that file and avoids the failing audio-only
-    # GVS request.  Other clients keep the normal best-audio selection.
-    if player_clients == ["android_vr"]:
-        requested_format = "18/best"
-    else:
-        requested_format = "bestaudio/best"
+    # android_vr can expose format 18, a pre-muxed video+AAC stream, even when
+    # separate audio formats are unavailable. FFmpeg can extract the audio
+    # from it, so keep it as a final no-cookie fallback.
+    requested_format = "18/bestaudio/best" if player_clients == ["android_vr"] else "bestaudio/best"
 
     options.update({
         "outtmpl": str(workdir / "%(title).120s-%(id)s.%(ext)s"),
@@ -181,9 +183,10 @@ def _video_id(url: str) -> Optional[str]:
 
 def _profiles() -> list[list[str]]:
     profiles: list[list[str]] = []
-    for client in PLAYER_CLIENTS + FALLBACK_PLAYER_CLIENTS:
-        if [client] not in profiles:
-            profiles.append([client])
+    for profile in PLAYER_CLIENT_PROFILES:
+        cleaned = [client for client in profile if client]
+        if cleaned and cleaned not in profiles:
+            profiles.append(cleaned)
     return profiles
 
 def _extract_info(url: str) -> dict:
@@ -191,17 +194,17 @@ def _extract_info(url: str) -> dict:
 
     for clients in _profiles():
         try:
-            print(f"=== SONORA: metadata attempt with {clients[0]} ===", flush=True)
+            print(f"=== SONORA: metadata attempt with {','.join(clients)} ===", flush=True)
             with yt_dlp.YoutubeDL(ytdlp_info_options(clients)) as ydl:
                 data = ydl.extract_info(url, download=False)
             if data:
                 return data
         except Exception as exc:
-            print(f"=== SONORA: metadata client {clients[0]} failed: {exc} ===", flush=True)
+            print(f"=== SONORA: metadata client {','.join(clients)} failed: {exc} ===", flush=True)
             last_exc = exc
 
-    # oEmbed is intentionally metadata-only.  The browser player supplies the
-    # duration on the frontend when yt-dlp cannot expose it.
+    # oEmbed is deliberately metadata-only. It reliably supplies title,
+    # uploader and thumbnail even when yt-dlp cannot pass YouTube's bot gate.
     meta = _youtube_oembed(url)
     if meta and meta.get("title"):
         video_id = _video_id(url)
@@ -226,7 +229,7 @@ def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, lis
 
     for clients in _profiles():
         try:
-            print(f"=== SONORA: download attempt with {clients[0]} ===", flush=True)
+            print(f"=== SONORA: download attempt with {','.join(clients)} ===", flush=True)
             with yt_dlp.YoutubeDL(ytdlp_download_options(workdir, fmt, clients)) as ydl:
                 data = ydl.extract_info(url, download=True)
 
@@ -238,7 +241,7 @@ def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, lis
                 return data, files
             raise RuntimeError("yt-dlp completed but no converted audio file was produced.")
         except Exception as exc:
-            print(f"=== SONORA: download client {clients[0]} failed: {exc} ===", flush=True)
+            print(f"=== SONORA: download client {','.join(clients)} failed: {exc} ===", flush=True)
             last_exc = exc
             for item in list(workdir.iterdir()):
                 if item.is_file():
@@ -256,8 +259,7 @@ def root():
         "status": "ok",
         "service": "sonora-worker",
         "youtube": "render-local-worker",
-        "player_clients": PLAYER_CLIENTS,
-        "fallback_player_clients": FALLBACK_PLAYER_CLIENTS,
+        "player_profiles": PLAYER_CLIENT_PROFILES,
         "cookies_configured": _cookie_file() is not None,
         "cookies_enabled": USE_COOKIES,
         "pot_provider": BGUTIL_URL,
@@ -269,8 +271,7 @@ def health():
         "status": "ok",
         "cookies_configured": _cookie_file() is not None,
         "cookies_enabled": USE_COOKIES,
-        "player_clients": PLAYER_CLIENTS,
-        "fallback_player_clients": FALLBACK_PLAYER_CLIENTS,
+        "player_profiles": PLAYER_CLIENT_PROFILES,
         "pot_provider": BGUTIL_URL,
     }
 
@@ -311,7 +312,7 @@ def download(request: DownloadRequest, authorization: Optional[str] = Header(def
         return FileResponse(
             path=str(audio_file),
             filename=f"{data.get('title') or 'audio'}.{fmt}",
-            media_type="application/octet-stream",
+            media_type="audio/mpeg" if fmt == "mp3" else "application/octet-stream",
         )
     except Exception as exc:
         shutil.rmtree(workdir, ignore_errors=True)
