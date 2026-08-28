@@ -9,6 +9,8 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      # Cobalt is the primary download backend. It has its own YouTube
+      # session generator, so Sonora no longer depends on browser cookies.
       - key: COBALT_URL
         fromService:
           name: sonora-cobalt
@@ -16,7 +18,7 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
 
   # Independent download backend. It runs in a different Render region so
-  # YouTube sees a different egress IP from the main API/worker.
+  # YouTube sees a different egress path from the main API/worker.
   - type: web
     name: sonora-cobalt
     runtime: image
@@ -38,6 +40,8 @@ services:
           name: sonora-youtube-api
           type: web
           envVarKey: RENDER_EXTERNAL_URL
+      # Cobalt itself fetches /get_pot from this service; the current Cobalt
+      # code replaces the pathname with /get_pot automatically.
       - key: YOUTUBE_SESSION_SERVER
         fromService:
           name: sonora-ytsession
@@ -47,6 +51,10 @@ services:
         value: WEB_EMBEDDED
       - key: YOUTUBE_ALLOW_BETTER_AUDIO
         value: "1"
+      # Process the media inside the Cobalt instance instead of relying on a
+      # long-lived external redirect/tunnel for the final file.
+      - key: FORCE_LOCAL_PROCESSING
+        value: "always"
       - key: RATELIMIT_MAX
         value: "10"
       - key: TUNNEL_RATELIMIT_MAX
