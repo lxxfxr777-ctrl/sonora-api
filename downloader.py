@@ -34,7 +34,6 @@ def validate_youtube_url(url: str) -> str:
     return url
 
 def _get_worker_url() -> str:
-    # In the Render-local architecture the worker runs beside FastAPI.
     if os.environ.get("SONORA_LOCAL_WORKER", "").strip().lower() in {"1", "true", "yes", "on"}:
         return "http://127.0.0.1:8787"
     worker_url = os.environ.get("WORKER_URL", "").strip()
@@ -102,25 +101,41 @@ def get_video_info(url: str) -> dict[str, Any]:
     thumbnail = info.get("thumbnail")
     try:
         from palette import attach_palette, best_thumbnail_url
-        normalized = {"id": info.get("id"), "title": title, "duration": info.get("duration"), "uploader": uploader,
-                      "thumbnail": best_thumbnail_url(info) if thumbnail else None,
-                      "webpage_url": info.get("webpage_url") or url}
+        normalized = {
+            "id": info.get("id"),
+            "title": title,
+            "duration": info.get("duration"),
+            "uploader": uploader,
+            "thumbnail": best_thumbnail_url(info) if thumbnail else None,
+            "webpage_url": info.get("webpage_url") or url,
+        }
         return attach_palette(normalized)
     except Exception:
-        return {"id": info.get("id"), "title": title, "duration": info.get("duration"), "uploader": uploader,
-                "thumbnail": thumbnail, "webpage_url": info.get("webpage_url") or url}
+        return {
+            "id": info.get("id"),
+            "title": title,
+            "duration": info.get("duration"),
+            "uploader": uploader,
+            "thumbnail": thumbnail,
+            "webpage_url": info.get("webpage_url") or url,
+        }
 
 def download_audio(url: str, audio_format: str = "mp3", progress_callback: ProgressCallback | None = None) -> tuple[Path, str, str]:
     validate_youtube_url(url)
     audio_format = audio_format.lower().strip()
     if audio_format not in SUPPORTED_FORMATS:
         raise ValueError(f"Formato no soportado: {audio_format}. Usa uno de: {', '.join(sorted(SUPPORTED_FORMATS))}")
-    info = _worker_info(url)
-    title = info.get("title") or "audio"
-    uploader = info.get("uploader") or info.get("channel") or ""
+
+    # IMPORTANT: do not call /info before /download.  /info is metadata-only
+    # and can legitimately fail on a client that is blocked while /download
+    # still has a viable fallback client (for example android_vr format 18).
     temp_dir = Path(tempfile.mkdtemp(prefix="yt-audio-worker-"))
     try:
-        body, content_type = _worker_request("/download", {"url": url, "format": audio_format}, timeout=600)
+        body, content_type = _worker_request(
+            "/download",
+            {"url": url, "format": audio_format},
+            timeout=600,
+        )
         if "application/json" in content_type.lower():
             try:
                 error_data = _decode_json_response(body)
@@ -128,13 +143,31 @@ def download_audio(url: str, audio_format: str = "mp3", progress_callback: Progr
             except Exception:
                 detail = body.decode("utf-8", errors="replace")[:500]
             raise DownloadFailedError(str(detail))
+
         output_file = temp_dir / f"audio.{audio_format}"
         output_file.write_bytes(body)
         if output_file.stat().st_size == 0:
             raise DownloadFailedError("El worker devolvió un archivo de audio vacío.")
+
+        # Metadata is deliberately best-effort after the binary download.  It
+        # must never block a successful audio download.
+        title = "audio"
+        uploader = ""
+        try:
+            info = _worker_info(url)
+            title = info.get("title") or title
+            uploader = info.get("uploader") or info.get("channel") or ""
+        except Exception:
+            pass
+
         if progress_callback:
             try:
-                progress_callback({"status": "finished", "filename": str(output_file), "title": title, "uploader": uploader})
+                progress_callback({
+                    "status": "finished",
+                    "filename": str(output_file),
+                    "title": title,
+                    "uploader": uploader,
+                })
             except Exception:
                 pass
         return output_file, title, uploader
