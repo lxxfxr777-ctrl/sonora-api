@@ -28,7 +28,11 @@ services:
       - key: YTDLP_PLAYER_PROFILES
         value: "mweb;web_safari;tv_embedded;web_embedded;android_vr"
       - key: YTDLP_USE_COOKIES
-        value: "false"
+        value: "true"
+      # YTDLP_COOKIES_B64 (el contenido real de las cookies, en base64)
+      # NO va aqui porque este repo es publico. Debe configurarse a mano
+      # como variable de entorno "secret" desde el dashboard de Render:
+      # Service -> Environment -> Add Environment Variable.
       - key: PIPED_INSTANCE_TTL
         value: "900"
       - key: PIPED_TIMEOUT
