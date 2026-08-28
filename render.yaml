@@ -9,14 +9,13 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      # Render injects the public URL of the Cobalt service automatically.
       - key: COBALT_URL
         fromService:
           name: sonora-cobalt
           type: web
           envVarKey: RENDER_EXTERNAL_URL
 
-  # Independent download backend.  It runs in a different Render region so
+  # Independent download backend. It runs in a different Render region so
   # YouTube sees a different egress IP from the main API/worker.
   - type: web
     name: sonora-cobalt
@@ -55,7 +54,7 @@ services:
       - key: SESSION_RATELIMIT_MAX
         value: "10"
 
-  # Generates fresh YouTube PO Tokens/visitor data automatically.  No
+  # Generates fresh YouTube PO Tokens/visitor data automatically. No
   # cookies.txt or Google account session is stored in Sonora.
   - type: web
     name: sonora-ytsession
@@ -64,5 +63,3 @@ services:
     region: frankfurt
     image:
       url: ghcr.io/imputnet/yt-session-generator:webserver
-    healthCheckPath: /token
-    autoDeploy: false
