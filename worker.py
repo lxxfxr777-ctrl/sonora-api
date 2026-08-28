@@ -23,20 +23,20 @@ YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 USE_COOKIES = os.getenv("YTDLP_USE_COOKIES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
-# YouTube changes which player clients are accepted frequently.  The order
-# below deliberately starts with clients that can work without account
-# cookies, then falls back to additional clients.
+# YouTube currently recommends using mweb together with an external PO Token
+# provider when the normal clients are blocked. bgutil generates that token
+# locally, so this is the first profile. The remaining profiles are fallbacks
+# and do not require a browser session/cookies for normal public videos.
 PLAYER_CLIENT_PROFILES = [
-    ["tv", "web_safari"],
+    ["mweb"],
     ["web_safari"],
+    ["tv_embedded"],
     ["web_embedded"],
     ["android_vr"],
-    ["mweb"],
-    ["tv_downgraded"],
 ]
 
-# Allow Render environment variables to override the profiles without code
-# changes. Example: YTDLP_PLAYER_PROFILES=tv,web_safari;web_embedded;android_vr
+# Render can override the order without another code deployment.
+# Example: YTDLP_PLAYER_PROFILES=mweb;web_safari;android_vr
 _profiles_env = os.getenv("YTDLP_PLAYER_PROFILES", "").strip()
 if _profiles_env:
     PLAYER_CLIENT_PROFILES = [
@@ -45,18 +45,22 @@ if _profiles_env:
         if group.strip()
     ] or PLAYER_CLIENT_PROFILES
 
+
 class InfoRequest(BaseModel):
     url: str
+
 
 class DownloadRequest(BaseModel):
     url: str
     format: str = "mp3"
+
 
 def check_token(authorization: Optional[str]) -> None:
     if not WORKER_TOKEN:
         return
     if authorization != f"Bearer {WORKER_TOKEN}":
         raise HTTPException(status_code=401, detail="Unauthorized")
+
 
 def clean_url(url: str) -> str:
     url = url.strip()
@@ -65,6 +69,7 @@ def clean_url(url: str) -> str:
     if not any(host in url for host in ("youtube.com/", "youtu.be/", "music.youtube.com/")):
         raise HTTPException(status_code=400, detail="Only YouTube URLs are supported")
     return url
+
 
 def _ensure_env_cookie_file() -> Optional[Path]:
     if not YTDLP_COOKIES_B64:
@@ -83,6 +88,7 @@ def _ensure_env_cookie_file() -> Optional[Path]:
         pass
     return path
 
+
 def _cookie_file() -> Optional[Path]:
     if not USE_COOKIES:
         return None
@@ -92,6 +98,7 @@ def _cookie_file() -> Optional[Path]:
     if COOKIES_FILE.is_file() and COOKIES_FILE.stat().st_size > 0:
         return COOKIES_FILE
     return None
+
 
 def _base_options(player_clients: list[str]) -> dict:
     options = {
@@ -104,17 +111,15 @@ def _base_options(player_clients: list[str]) -> dict:
         "fragment_retries": 3,
         "extractor_retries": 2,
         "socket_timeout": 30,
-        "sleep_interval": 2,
-        "max_sleep_interval": 5,
-        "sleep_interval_requests": 2,
+        # YouTube documents a 5-10 second delay as a way to reduce guest
+        # session rate limiting. Keep the service conservative on Render.
+        "sleep_interval": 3,
+        "max_sleep_interval": 6,
+        "sleep_interval_requests": 3,
         "extractor_args": {
             "youtube": {
                 "player_client": player_clients,
-                # The initial webpage request is one of the requests most
-                # likely to receive HTTP 429 on datacenter IPs. The player
-                # clients can still be queried directly after it is skipped.
                 "player_skip": ["webpage"],
-                "webpage_client": "web_safari",
                 "fetch_pot": "auto",
             },
             "youtubepot-bgutilhttp": {
@@ -137,17 +142,19 @@ def _base_options(player_clients: list[str]) -> dict:
 
     return options
 
+
 def ytdlp_info_options(player_clients: list[str]) -> dict:
     options = _base_options(player_clients)
     options["skip_download"] = True
     return options
 
+
 def ytdlp_download_options(workdir: Path, fmt: str, player_clients: list[str]) -> dict:
     options = _base_options(player_clients)
 
-    # android_vr can expose format 18, a pre-muxed video+AAC stream, even when
-    # separate audio formats are unavailable. FFmpeg can extract the audio
-    # from it, so keep it as a final no-cookie fallback.
+    # android_vr can expose a pre-muxed format 18. FFmpeg can extract the
+    # audio from it, making this a useful final fallback when separate audio
+    # formats are unavailable.
     requested_format = "18/bestaudio/best" if player_clients == ["android_vr"] else "bestaudio/best"
 
     options.update({
@@ -161,6 +168,7 @@ def ytdlp_download_options(workdir: Path, fmt: str, player_clients: list[str]) -
     })
     return options
 
+
 def _youtube_oembed(url: str) -> Optional[dict]:
     try:
         endpoint = "https://www.youtube.com/oembed?url=" + quote(url, safe="") + "&format=json"
@@ -170,6 +178,7 @@ def _youtube_oembed(url: str) -> Optional[dict]:
         return data if isinstance(data, dict) else None
     except Exception:
         return None
+
 
 def _video_id(url: str) -> Optional[str]:
     try:
@@ -181,6 +190,7 @@ def _video_id(url: str) -> Optional[str]:
     except Exception:
         return None
 
+
 def _profiles() -> list[list[str]]:
     profiles: list[list[str]] = []
     for profile in PLAYER_CLIENT_PROFILES:
@@ -188,6 +198,7 @@ def _profiles() -> list[list[str]]:
         if cleaned and cleaned not in profiles:
             profiles.append(cleaned)
     return profiles
+
 
 def _extract_info(url: str) -> dict:
     last_exc: Optional[Exception] = None
@@ -203,8 +214,8 @@ def _extract_info(url: str) -> dict:
             print(f"=== SONORA: metadata client {','.join(clients)} failed: {exc} ===", flush=True)
             last_exc = exc
 
-    # oEmbed is deliberately metadata-only. It reliably supplies title,
-    # uploader and thumbnail even when yt-dlp cannot pass YouTube's bot gate.
+    # oEmbed is metadata-only. It can still provide title/uploader/thumbnail
+    # when YouTube blocks yt-dlp extraction.
     meta = _youtube_oembed(url)
     if meta and meta.get("title"):
         video_id = _video_id(url)
@@ -224,12 +235,13 @@ def _extract_info(url: str) -> dict:
     assert last_exc is not None
     raise last_exc
 
+
 def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, list[Path]]:
     last_exc: Optional[Exception] = None
 
     for clients in _profiles():
         try:
-            print(f"=== SONORA: download attempt with {','.join(clients)} ===", flush=True)
+            print(f"=== SONORA: download attempt with {','.join(clients)} + bgutil ===", flush=True)
             with yt_dlp.YoutubeDL(ytdlp_download_options(workdir, fmt, clients)) as ydl:
                 data = ydl.extract_info(url, download=True)
 
@@ -253,17 +265,19 @@ def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, lis
     assert last_exc is not None
     raise last_exc
 
+
 @app.get("/")
 def root():
     return {
         "status": "ok",
         "service": "sonora-worker",
-        "youtube": "render-local-worker",
+        "youtube": "local-yt-dlp-bgutil",
         "player_profiles": PLAYER_CLIENT_PROFILES,
         "cookies_configured": _cookie_file() is not None,
         "cookies_enabled": USE_COOKIES,
         "pot_provider": BGUTIL_URL,
     }
+
 
 @app.get("/health")
 def health():
@@ -274,6 +288,7 @@ def health():
         "player_profiles": PLAYER_CLIENT_PROFILES,
         "pot_provider": BGUTIL_URL,
     }
+
 
 @app.post("/info")
 def info(request: InfoRequest, authorization: Optional[str] = Header(default=None)):
@@ -297,6 +312,7 @@ def info(request: InfoRequest, authorization: Optional[str] = Header(default=Non
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
+
 @app.post("/download")
 def download(request: DownloadRequest, authorization: Optional[str] = Header(default=None)):
     check_token(authorization)
@@ -317,6 +333,7 @@ def download(request: DownloadRequest, authorization: Optional[str] = Header(def
     except Exception as exc:
         shutil.rmtree(workdir, ignore_errors=True)
         raise HTTPException(status_code=502, detail=str(exc))
+
 
 if __name__ == "__main__":
     import uvicorn
