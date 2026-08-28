@@ -1,7 +1,6 @@
-# Custom wrapper around the official yt-session-generator image.
-# Render runs image services as root; the upstream image can fail to start
-# Chromium's sandbox in that environment. We explicitly enable no_sandbox.
-FROM ghcr.io/imputnet/yt-session-generator:latest
+# Render-safe wrapper around the official always-running session generator.
+# Render runs image services as root; Chromium needs no_sandbox in this setup.
+FROM ghcr.io/imputnet/yt-session-generator:webserver
 
 RUN python - <<'PY'
 from pathlib import Path
@@ -14,6 +13,6 @@ if old not in s:
 p.write_text(s.replace(old, new, 1))
 PY
 
-EXPOSE 8080
+EXPOSE 10000
 
-CMD ["/bin/sh", "-c", "Xvfb :99 -ac -screen 0 ${XVFB_WHD:-1280x720x16} -nolisten tcp >/dev/null 2>&1 & sleep 2; export DISPLAY=:99; exec python /app/potoken-generator.py --bind 0.0.0.0"]
+CMD ["/bin/sh", "-c", "Xvfb :99 -ac -screen 0 ${XVFB_WHD:-1280x720x16} -nolisten tcp >/dev/null 2>&1 & sleep 2; export DISPLAY=:99; exec python /app/potoken-generator.py --bind 0.0.0.0 --port ${PORT:-10000}"]
