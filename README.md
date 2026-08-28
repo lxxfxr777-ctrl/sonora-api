@@ -2,12 +2,36 @@
 
 API FastAPI para consultar información de videos de YouTube/YouTube Music y descargar audio en MP3, M4A, OPUS o WAV.
 
+## Arquitectura actual
+
+Sonora está diseñada para funcionar como **un solo Web Service de Render**:
+
+```text
+Sonora / FastAPI
+       |
+       v
+worker local
+       |
+       +--> yt-dlp
+       |
+       +--> bgutil PO Token provider (127.0.0.1:4416)
+       |
+       +--> FFmpeg
+       |
+       v
+    YouTube
+```
+
+El worker y el proveedor bgutil viven dentro del mismo contenedor. Esto evita depender de Cobalt, de un segundo servicio público o de un generador remoto de sesiones de YouTube.
+
 ## Ejecutar localmente
 
 Requisitos:
 
 - Python 3.12+
 - FFmpeg
+- Node.js 20+
+- Deno
 
 Instala dependencias:
 
@@ -18,34 +42,49 @@ pip install -r requirements.txt
 Inicia:
 
 ```powershell
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python start.py
 ```
 
 Documentación:
 
-- `http://127.0.0.1:8000/docs`
-- `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:10000/docs`
+- `http://127.0.0.1:10000/health`
 
 ## Publicar en Render
 
-Este proyecto incluye:
+El repositorio incluye un `render.yaml` que configura un único Web Service Docker.
 
-- `Dockerfile`: instala Python, FFmpeg, Node.js y el proveedor bgutil.
-- `render.yaml`: configura el Web Service y el health check.
-- `downloader.py`: ejecuta yt-dlp directamente dentro del contenedor de Render.
-- `main.py`: expone la API y la interfaz web.
+El `Dockerfile` compila el servidor bgutil y arranca, dentro del mismo contenedor:
 
-El descargador **ya no depende de un worker en Windows ni de un Cloudflare Tunnel**. Render ejecuta el proceso de descarga dentro de su propio contenedor.
+1. bgutil en `127.0.0.1:4416`
+2. worker FastAPI en `127.0.0.1:8787`
+3. API pública FastAPI en `$PORT`
 
-### Opción recomendada: GitHub + Render
+Render solo necesita desplegar el servicio definido en `render.yaml`.
 
-1. Conecta este repositorio a Render.
-2. Usa el `render.yaml` como Blueprint o configura el Web Service con Docker.
-3. Espera a que termine el deploy.
-4. Abre la URL `https://<tu-servicio>.onrender.com`.
-5. Comprueba `/health` y `/docs`.
+## Descargas de YouTube
 
-No necesitas mantener una PC encendida para que el descargador funcione.
+El descargador usa yt-dlp con bgutil para obtener automáticamente PO Tokens cuando son necesarios. La primera estrategia es `mweb` + bgutil y después se prueban clientes alternativos si ese perfil no puede obtener los formatos necesarios.
+
+Los perfiles se pueden cambiar mediante:
+
+```text
+YTDLP_PLAYER_PROFILES=mweb;web_safari;tv_embedded;web_embedded;android_vr
+```
+
+No se necesitan cookies para los videos públicos que puedan descargarse sin una sesión de cuenta. Las cookies son un mecanismo opcional para contenido que realmente requiere autenticación.
+
+## Cookies de YouTube
+
+Si un contenido concreto necesita una sesión autenticada, puedes configurar:
+
+- `YTDLP_COOKIES_B64`
+- `YTDLP_COOKIES_FILE`
+- `YTDLP_USE_COOKIES=true`
+
+Por defecto `YTDLP_USE_COOKIES=false`.
+
+No conviene depender de cookies para el funcionamiento normal del servicio porque YouTube puede rotarlas o invalidarlas.
 
 ## Rutas principales
 
@@ -58,23 +97,17 @@ No necesitas mantener una PC encendida para que el descargador funcione.
 - `POST /api/download` — descarga con JSON `{ "url": "...", "format": "mp3" }`.
 - `GET /docs` — Swagger/OpenAPI.
 
-## Cookies de YouTube
-
-Si YouTube exige cookies para determinados videos, puedes configurar en Render `YTDLP_COOKIES_B64` con el contenido base64 de tu `cookies.txt`, o usar `YTDLP_COOKIES_FILE` / el endpoint protegido de subida de cookies.
-
-Si configuras `YTDLP_COOKIES_API_KEY`, usa `Authorization: Bearer <key>` o `X-API-Key: <key>` para los endpoints de cookies.
-
 ## Render Free
 
-El servicio gratuito de Render puede dormir después de un periodo de inactividad y puede tardar en despertar con la primera solicitud. Eso es independiente de la descarga: una vez que el contenedor está activo, **el worker ya no está en tu PC** y no necesitas Cloudflare Tunnel ni los comandos de Windows para realizar las descargas.
+El servicio gratuito de Render puede suspenderse después de un periodo de inactividad y tardar en despertar con la primera solicitud. Eso es independiente de la descarga.
 
-El sistema de archivos del servicio es temporal. Las descargas se guardan en carpetas temporales y se eliminan después de enviarse al usuario.
+El sistema de archivos del servicio es temporal. Las descargas se guardan temporalmente y se eliminan después de enviarse al usuario.
 
 ## FFmpeg y bgutil
 
 FFmpeg se instala dentro de la imagen Docker.
 
-El proveedor bgutil se compila y se inicia dentro del mismo contenedor en `127.0.0.1:4416`, y `yt-dlp` lo utiliza para sus operaciones de YouTube. La versión del servidor se mantiene alineada con el plugin Python instalado en `requirements.txt`.
+El proveedor bgutil se compila durante el build y se inicia dentro del mismo contenedor en `127.0.0.1:4416`. La versión del servidor se mantiene alineada con `bgutil-ytdlp-pot-provider==1.3.2` instalado en `requirements.txt`.
 
 ## Importante
 
