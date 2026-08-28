@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import base64
 import json
 import os
 import shutil
+import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -23,10 +27,42 @@ YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 USE_COOKIES = os.getenv("YTDLP_USE_COOKIES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
+# Piped is a fallback only. It lets Sonora try another YouTube-facing
+# infrastructure when Render's datacenter IP is rejected by YouTube.
+PIPED_DISCOVERY_URL = os.getenv(
+    "PIPED_DISCOVERY_URL",
+    "https://raw.githubusercontent.com/TeamPiped/documentation/main/content/docs/public-instances/index.md",
+).strip()
+PIPED_INSTANCE_TTL = max(60, int(os.getenv("PIPED_INSTANCE_TTL", "600")))
+PIPED_TIMEOUT = max(10, int(os.getenv("PIPED_TIMEOUT", "45")))
+PIPED_INSTANCES_ENV = os.getenv("PIPED_API_INSTANCES", "").strip()
+
+# These are only a last-resort bootstrap list. The service first tries to
+# refresh the public Piped instance list from TeamPiped's documentation.
+PIPED_BOOTSTRAP_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.leptons.xyz",
+    "https://pipedapi.nosebs.ru",
+    "https://pipedapi-libre.kavin.rocks",
+    "https://piped-api.privacy.com.de",
+    "https://pipedapi.adminforge.de",
+    "https://api.piped.yt",
+    "https://pipedapi.drgns.space",
+    "https://pipedapi.owo.si",
+    "https://pipedapi.ducks.party",
+    "https://piped-api.codespace.cz",
+    "https://pipedapi.reallyaweso.me",
+    "https://api.piped.private.coffee",
+    "https://pipedapi.darkness.services",
+    "https://pipedapi.orangenet.cc",
+]
+
+_piped_cache: list[str] = []
+_piped_cache_at = 0.0
+
 # YouTube currently recommends using mweb together with an external PO Token
 # provider when the normal clients are blocked. bgutil generates that token
-# locally, so this is the first profile. The remaining profiles are fallbacks
-# and do not require a browser session/cookies for normal public videos.
+# locally, so this remains the primary downloader.
 PLAYER_CLIENT_PROFILES = [
     ["mweb"],
     ["web_safari"],
@@ -35,8 +71,6 @@ PLAYER_CLIENT_PROFILES = [
     ["android_vr"],
 ]
 
-# Render can override the order without another code deployment.
-# Example: YTDLP_PLAYER_PROFILES=mweb;web_safari;android_vr
 _profiles_env = os.getenv("YTDLP_PLAYER_PROFILES", "").strip()
 if _profiles_env:
     PLAYER_CLIENT_PROFILES = [
@@ -111,8 +145,6 @@ def _base_options(player_clients: list[str]) -> dict:
         "fragment_retries": 3,
         "extractor_retries": 2,
         "socket_timeout": 30,
-        # YouTube documents a 5-10 second delay as a way to reduce guest
-        # session rate limiting. Keep the service conservative on Render.
         "sleep_interval": 3,
         "max_sleep_interval": 6,
         "sleep_interval_requests": 3,
@@ -151,10 +183,6 @@ def ytdlp_info_options(player_clients: list[str]) -> dict:
 
 def ytdlp_download_options(workdir: Path, fmt: str, player_clients: list[str]) -> dict:
     options = _base_options(player_clients)
-
-    # android_vr can expose a pre-muxed format 18. FFmpeg can extract the
-    # audio from it, making this a useful final fallback when separate audio
-    # formats are unavailable.
     requested_format = "18/bestaudio/best" if player_clients == ["android_vr"] else "bestaudio/best"
 
     options.update({
@@ -191,6 +219,230 @@ def _video_id(url: str) -> Optional[str]:
         return None
 
 
+def _parse_piped_instances(markdown: str) -> list[str]:
+    instances: list[str] = []
+    for line in markdown.splitlines():
+        if "|" not in line or "https://" not in line:
+            continue
+        for part in line.split("|"):
+            value = part.strip().strip("`")
+            if not value.startswith("https://"):
+                continue
+            # The public-instance table contains API URLs in this column.
+            # Keep only Piped-looking API hosts and reject arbitrary links.
+            host = value.split("/", 3)[2].lower()
+            if any(marker in host for marker in ("pipedapi.", "piped-api.", "api.piped.", "pdapi.", "piapi.", "yapi.")):
+                value = value.rstrip("/")
+                if value not in instances:
+                    instances.append(value)
+    return instances
+
+
+def _piped_instances(force_refresh: bool = False) -> list[str]:
+    global _piped_cache, _piped_cache_at
+
+    if PIPED_INSTANCES_ENV:
+        configured = [item.strip().rstrip("/") for item in PIPED_INSTANCES_ENV.split(",") if item.strip()]
+        return list(dict.fromkeys(configured + PIPED_BOOTSTRAP_INSTANCES))
+
+    now = time.time()
+    if _piped_cache and not force_refresh and now - _piped_cache_at < PIPED_INSTANCE_TTL:
+        return _piped_cache
+
+    discovered: list[str] = []
+    try:
+        request = Request(
+            PIPED_DISCOVERY_URL,
+            headers={"User-Agent": "Sonora/1.0", "Accept": "text/plain,text/markdown,*/*"},
+            method="GET",
+        )
+        with urlopen(request, timeout=15) as response:
+            markdown = response.read().decode("utf-8", errors="replace")
+        discovered = _parse_piped_instances(markdown)
+        print(f"=== SONORA: discovered {len(discovered)} Piped instances ===", flush=True)
+    except Exception as exc:
+        print(f"=== SONORA: Piped instance discovery failed: {exc} ===", flush=True)
+
+    combined = list(dict.fromkeys(discovered + PIPED_BOOTSTRAP_INSTANCES))
+    _piped_cache = combined
+    _piped_cache_at = now
+    return combined
+
+
+def _piped_streams(video_id: str, instance: str) -> dict:
+    endpoint = f"{instance.rstrip('/')}/streams/{quote(video_id, safe='')}"
+    request = Request(
+        endpoint,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; Sonora/1.0)",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    with urlopen(request, timeout=PIPED_TIMEOUT) as response:
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f"Piped HTTP {response.status}")
+        data = json.loads(response.read().decode("utf-8", errors="replace"))
+    if not isinstance(data, dict):
+        raise RuntimeError("Piped returned invalid JSON")
+    return data
+
+
+def _choose_audio_stream(data: dict) -> dict:
+    streams = data.get("audioStreams")
+    if not isinstance(streams, list):
+        raise RuntimeError("Piped returned no audioStreams")
+
+    valid = [
+        stream for stream in streams
+        if isinstance(stream, dict) and stream.get("url") and not stream.get("videoOnly", False)
+    ]
+    if not valid:
+        raise RuntimeError("Piped returned no usable audio stream")
+
+    def bitrate(stream: dict) -> int:
+        try:
+            return int(stream.get("bitrate") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    return max(valid, key=bitrate)
+
+
+def _piped_info(url: str) -> dict:
+    video_id = _video_id(url)
+    if not video_id:
+        raise RuntimeError("Could not determine YouTube video ID")
+
+    last_exc: Optional[Exception] = None
+    instances = _piped_instances()
+    for index, instance in enumerate(instances):
+        try:
+            print(f"=== SONORA: Piped metadata attempt {index + 1}/{len(instances)} {instance} ===", flush=True)
+            data = _piped_streams(video_id, instance)
+            return {
+                "id": video_id,
+                "title": data.get("title") or "audio",
+                "uploader": data.get("uploader") or data.get("uploaderName") or "",
+                "channel": data.get("uploader") or data.get("uploaderName") or "",
+                "duration": data.get("duration"),
+                "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                "webpage_url": url,
+                "description": data.get("description"),
+                "metadata_source": "piped-fallback",
+                "piped_instance": instance,
+            }
+        except Exception as exc:
+            print(f"=== SONORA: Piped instance failed: {instance}: {exc} ===", flush=True)
+            last_exc = exc
+
+    # Refresh once in case the public instance list changed while this
+    # process was running.
+    refreshed = _piped_instances(force_refresh=True)
+    for instance in refreshed:
+        if instance in instances:
+            continue
+        try:
+            data = _piped_streams(video_id, instance)
+            return {
+                "id": video_id,
+                "title": data.get("title") or "audio",
+                "uploader": data.get("uploader") or data.get("uploaderName") or "",
+                "channel": data.get("uploader") or data.get("uploaderName") or "",
+                "duration": data.get("duration"),
+                "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                "webpage_url": url,
+                "description": data.get("description"),
+                "metadata_source": "piped-fallback",
+                "piped_instance": instance,
+            }
+        except Exception as exc:
+            last_exc = exc
+
+    raise RuntimeError(f"All Piped instances failed: {last_exc}")
+
+
+def _ffmpeg_convert(input_path: Path, output_path: Path, fmt: str) -> None:
+    codecs = {
+        "mp3": ["-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-b:a", "192k"],
+        "m4a": ["-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"],
+        "opus": ["-vn", "-map", "0:a:0", "-c:a", "libopus", "-b:a", "128k"],
+        "wav": ["-vn", "-map", "0:a:0", "-c:a", "pcm_s16le"],
+    }
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(input_path)]
+    command.extend(codecs[fmt])
+    command.append(str(output_path))
+    result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0 or not output_path.is_file() or output_path.stat().st_size == 0:
+        detail = (result.stderr or result.stdout or "unknown ffmpeg error").strip()[-1500:]
+        raise RuntimeError(f"FFmpeg conversion failed: {detail}")
+
+
+def _piped_download(url: str, workdir: Path, fmt: str) -> tuple[dict, list[Path]]:
+    video_id = _video_id(url)
+    if not video_id:
+        raise RuntimeError("Could not determine YouTube video ID")
+
+    last_exc: Optional[Exception] = None
+    instances = _piped_instances()
+    tried = set()
+
+    for refresh_round in range(2):
+        for instance in _piped_instances(force_refresh=(refresh_round == 1)):
+            if instance in tried:
+                continue
+            tried.add(instance)
+            input_path = workdir / "piped-source"
+            output_path = workdir / f"piped-audio.{fmt}"
+            try:
+                print(f"=== SONORA: Piped download attempt {instance} ===", flush=True)
+                data = _piped_streams(video_id, instance)
+                stream = _choose_audio_stream(data)
+                stream_url = str(stream["url"])
+
+                request = Request(
+                    stream_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/147.0 Safari/537.36",
+                        "Accept": "*/*",
+                        "Referer": "https://piped.video/",
+                    },
+                    method="GET",
+                )
+                with urlopen(request, timeout=PIPED_TIMEOUT) as response, input_path.open("wb") as destination:
+                    while True:
+                        chunk = response.read(1024 * 256)
+                        if not chunk:
+                            break
+                        destination.write(chunk)
+
+                if not input_path.is_file() or input_path.stat().st_size == 0:
+                    raise RuntimeError("Piped returned an empty audio stream")
+
+                _ffmpeg_convert(input_path, output_path, fmt)
+                return {
+                    "id": video_id,
+                    "title": data.get("title") or "audio",
+                    "uploader": data.get("uploader") or data.get("uploaderName") or "",
+                    "channel": data.get("uploader") or data.get("uploaderName") or "",
+                    "duration": data.get("duration"),
+                    "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                    "webpage_url": url,
+                    "metadata_source": "piped-fallback",
+                    "piped_instance": instance,
+                }, [output_path]
+            except Exception as exc:
+                print(f"=== SONORA: Piped download failed on {instance}: {exc} ===", flush=True)
+                last_exc = exc
+                for item in (input_path, output_path):
+                    try:
+                        item.unlink()
+                    except OSError:
+                        pass
+
+    raise RuntimeError(f"All Piped download attempts failed: {last_exc}")
+
+
 def _profiles() -> list[list[str]]:
     profiles: list[list[str]] = []
     for profile in PLAYER_CLIENT_PROFILES:
@@ -214,8 +466,12 @@ def _extract_info(url: str) -> dict:
             print(f"=== SONORA: metadata client {','.join(clients)} failed: {exc} ===", flush=True)
             last_exc = exc
 
-    # oEmbed is metadata-only. It can still provide title/uploader/thumbnail
-    # when YouTube blocks yt-dlp extraction.
+    try:
+        return _piped_info(url)
+    except Exception as exc:
+        print(f"=== SONORA: Piped metadata fallback failed: {exc} ===", flush=True)
+        last_exc = exc
+
     meta = _youtube_oembed(url)
     if meta and meta.get("title"):
         video_id = _video_id(url)
@@ -262,6 +518,15 @@ def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, lis
                     except OSError:
                         pass
 
+    # Important: Piped is a fallback, not a replacement. If YouTube rejects
+    # Render's datacenter IP, the public Piped infrastructure gets the stream
+    # and Sonora converts it locally with FFmpeg.
+    try:
+        return _piped_download(url, workdir, fmt)
+    except Exception as exc:
+        print(f"=== SONORA: Piped download fallback failed: {exc} ===", flush=True)
+        last_exc = exc
+
     assert last_exc is not None
     raise last_exc
 
@@ -271,11 +536,12 @@ def root():
     return {
         "status": "ok",
         "service": "sonora-worker",
-        "youtube": "local-yt-dlp-bgutil",
+        "youtube": "local-yt-dlp-bgutil+piped-fallback",
         "player_profiles": PLAYER_CLIENT_PROFILES,
         "cookies_configured": _cookie_file() is not None,
         "cookies_enabled": USE_COOKIES,
         "pot_provider": BGUTIL_URL,
+        "piped_instances": len(_piped_instances()),
     }
 
 
@@ -287,6 +553,7 @@ def health():
         "cookies_enabled": USE_COOKIES,
         "player_profiles": PLAYER_CLIENT_PROFILES,
         "pot_provider": BGUTIL_URL,
+        "piped_instances": len(_piped_instances()),
     }
 
 
@@ -308,6 +575,7 @@ def info(request: InfoRequest, authorization: Optional[str] = Header(default=Non
             "description": data.get("description"),
             "metadata_source": data.get("metadata_source", "yt-dlp"),
             "yt_dlp_error": data.get("yt_dlp_error"),
+            "piped_instance": data.get("piped_instance"),
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
@@ -328,7 +596,7 @@ def download(request: DownloadRequest, authorization: Optional[str] = Header(def
         return FileResponse(
             path=str(audio_file),
             filename=f"{data.get('title') or 'audio'}.{fmt}",
-            media_type="audio/mpeg" if fmt == "mp3" else "application/octet-stream",
+            media_type="audio/mpeg" if fmt == "mp3" else ("audio/mp4" if fmt == "m4a" else ("audio/ogg" if fmt == "opus" else "audio/wav")),
         )
     except Exception as exc:
         shutil.rmtree(workdir, ignore_errors=True)
