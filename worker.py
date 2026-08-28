@@ -22,20 +22,15 @@ BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip
 YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 
-# YouTube's current extractor rules increasingly require PO tokens for the
-# clients used by normal web requests. The bgutil provider bundled in this
-# container can generate those tokens automatically. mweb is the client
-# recommended by the current yt-dlp guidance for this setup.
+# Current yt-dlp guidance recommends mweb + an automatic PO-token provider.
+# Keep mweb as the primary route so downloads do not depend on browser cookies.
 PLAYER_CLIENTS = [
     item.strip()
     for item in os.getenv("YTDLP_PLAYER_CLIENTS", "mweb").split(",")
     if item.strip()
 ]
 
-# If mweb is rejected by YouTube, try clients that can still expose playable
-# formats without requiring an account cookie. web_safari can provide HLS
-# formats that are useful as a second route; web_embedded is kept as a final
-# compatibility fallback for videos that allow embedding.
+# web_safari can expose HLS formats and web_embedded is a compatibility fallback.
 FALLBACK_PLAYER_CLIENTS = [
     item.strip()
     for item in os.getenv("YTDLP_FALLBACK_PLAYER_CLIENTS", "web_safari,web_embedded").split(",")
@@ -61,14 +56,11 @@ def clean_url(url: str) -> str:
         raise HTTPException(status_code=400, detail="URL is required")
     if not any(host in url for host in ("youtube.com/", "youtu.be/", "music.youtube.com/")):
         raise HTTPException(status_code=400, detail="Only YouTube URLs are supported")
-    # YouTube Music and YouTube share the same video IDs. Normalizing the
-    # public page avoids an unnecessary Music-specific webpage request.
     url = url.replace("https://music.youtube.com/watch?", "https://www.youtube.com/watch?")
     url = url.replace("http://music.youtube.com/watch?", "https://www.youtube.com/watch?")
     return url
 
 def _ensure_env_cookie_file() -> Optional[Path]:
-    """Materialize an optional Render secret containing Netscape cookies."""
     if not YTDLP_COOKIES_B64:
         return None
     try:
@@ -94,26 +86,34 @@ def _cookie_file() -> Optional[Path]:
     return None
 
 def _base_options(player_clients: list[str]) -> dict:
-    # yt-dlp's Python API expects extractor_args as nested dictionaries.
+    # IMPORTANT: bgutil's base_url is a single string, not a list. Passing it
+    # as a list can make yt-dlp silently ignore the HTTP provider configuration.
+    # We also explicitly request PO-token generation for formats that need it.
     options = {
         "quiet": False,
         "no_warnings": False,
         "noplaylist": True,
         "verbose": True,
         "force_ipv4": True,
-        "retries": 4,
-        "fragment_retries": 4,
-        "extractor_retries": 4,
+        "retries": 5,
+        "fragment_retries": 5,
+        "extractor_retries": 5,
         "socket_timeout": 30,
         "sleep_interval": 1,
-        "max_sleep_interval": 3,
+        "max_sleep_interval": 4,
         "sleep_interval_requests": 1,
         "extractor_args": {
             "youtube": {
                 "player_client": player_clients,
+                "fetch_pot": ["always"],
+                "formats": ["missing_pot"],
+                # This avoids a newer Innertube path on installations where
+                # YouTube is currently returning LOGIN_REQUIRED to that path.
+                "disable_innertube": ["1"],
             },
             "youtubepot-bgutilhttp": {
-                "base_url": [BGUTIL_URL],
+                # The provider expects one scalar base_url value.
+                "base_url": BGUTIL_URL,
             },
         },
         "js_runtimes": {
@@ -151,30 +151,16 @@ def ytdlp_download_options(workdir: Path, fmt: str, player_clients: list[str]) -
     return options
 
 def _youtube_oembed(url: str) -> Optional[dict]:
-    """Fetch title/author/thumbnail without invoking the yt-dlp extractor.
-
-    This is intentionally only a metadata fallback. It does not bypass the
-    media-download authentication/rate-limit checks enforced by YouTube.
-    """
     try:
         endpoint = "https://www.youtube.com/oembed?url=" + quote(url, safe="") + "&format=json"
-        request = Request(
-            endpoint,
-            headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/json",
-            },
-        )
+        request = Request(endpoint, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
         with urlopen(request, timeout=15) as response:
             data = json.loads(response.read().decode("utf-8", errors="replace"))
-        if not isinstance(data, dict):
-            return None
-        return data
+        return data if isinstance(data, dict) else None
     except Exception:
         return None
 
 def _extract_info(url: str) -> dict:
-    """Try the PO-token-backed profile, then conservative fallbacks."""
     last_exc: Optional[Exception] = None
     profiles = [PLAYER_CLIENTS]
     if FALLBACK_PLAYER_CLIENTS and FALLBACK_PLAYER_CLIENTS != PLAYER_CLIENTS:
@@ -200,10 +186,7 @@ def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, lis
         try:
             with yt_dlp.YoutubeDL(ytdlp_download_options(workdir, fmt, clients)) as ydl:
                 data = ydl.extract_info(url, download=True)
-            files = [
-                p for p in workdir.iterdir()
-                if p.is_file() and p.suffix.lower() == f".{fmt}"
-            ]
+            files = [p for p in workdir.iterdir() if p.is_file() and p.suffix.lower() == f".{fmt}"]
             if files:
                 return data, files
             raise RuntimeError("yt-dlp completed but no converted audio file was produced.")
@@ -261,15 +244,11 @@ def info(request: InfoRequest, authorization: Optional[str] = Header(default=Non
                 "metadata_source": "yt-dlp",
             }
         except Exception as ytdlp_exc:
-            # Keep the preview card working when YouTube blocks yt-dlp's
-            # player endpoint. This fallback is metadata-only; /download
-            # still uses yt-dlp with the PO-token-backed profiles above.
             meta = _youtube_oembed(url)
             if meta and meta.get("title"):
                 video_id = None
-                marker = "v="
-                if marker in url:
-                    video_id = url.split(marker, 1)[1].split("&", 1)[0]
+                if "v=" in url:
+                    video_id = url.split("v=", 1)[1].split("&", 1)[0]
                 return {
                     "ok": True,
                     "id": video_id,
