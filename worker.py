@@ -22,18 +22,21 @@ BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip
 YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 
-# Current yt-dlp guidance recommends mweb + an automatic PO-token provider.
-# Keep mweb as the primary route so downloads do not depend on browser cookies.
+# IMPORTANT:
+# Do not make mweb the only client. Current YouTube enforcement can require
+# a PO token for mweb, while web_embedded does not require one but only works
+# for videos that are embeddable. web_safari can provide HLS formats without
+# requiring a GVS PO token at the moment. We therefore try the clients in a
+# practical order instead of failing immediately on mweb.
 PLAYER_CLIENTS = [
     item.strip()
-    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "mweb").split(",")
+    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "web_embedded,web_safari,mweb").split(",")
     if item.strip()
 ]
 
-# web_safari can expose HLS formats and web_embedded is a compatibility fallback.
 FALLBACK_PLAYER_CLIENTS = [
     item.strip()
-    for item in os.getenv("YTDLP_FALLBACK_PLAYER_CLIENTS", "web_safari,web_embedded").split(",")
+    for item in os.getenv("YTDLP_FALLBACK_PLAYER_CLIENTS", "android_vr,tv_simply").split(",")
     if item.strip()
 ]
 
@@ -56,8 +59,8 @@ def clean_url(url: str) -> str:
         raise HTTPException(status_code=400, detail="URL is required")
     if not any(host in url for host in ("youtube.com/", "youtu.be/", "music.youtube.com/")):
         raise HTTPException(status_code=400, detail="Only YouTube URLs are supported")
-    url = url.replace("https://music.youtube.com/watch?", "https://www.youtube.com/watch?")
-    url = url.replace("http://music.youtube.com/watch?", "https://www.youtube.com/watch?")
+    # Keep the original video URL semantics. yt-dlp accepts both YouTube and
+    # YouTube Music URLs, and the video ID is what matters to the extractor.
     return url
 
 def _ensure_env_cookie_file() -> Optional[Path]:
@@ -86,9 +89,11 @@ def _cookie_file() -> Optional[Path]:
     return None
 
 def _base_options(player_clients: list[str]) -> dict:
-    # IMPORTANT: bgutil's base_url is a single string, not a list. Passing it
-    # as a list can make yt-dlp silently ignore the HTTP provider configuration.
-    # We also explicitly request PO-token generation for formats that need it.
+    # yt-dlp's current PO-token guidance recommends using a provider for
+    # clients that need it. We keep bgutil configured, but do NOT force
+    # fetch_pot=always or disable_innertube for every client: those switches
+    # can turn a perfectly usable web_embedded/web_safari extraction into a
+    # LOGIN_REQUIRED failure.
     options = {
         "quiet": False,
         "no_warnings": False,
@@ -105,14 +110,8 @@ def _base_options(player_clients: list[str]) -> dict:
         "extractor_args": {
             "youtube": {
                 "player_client": player_clients,
-                "fetch_pot": ["always"],
-                "formats": ["missing_pot"],
-                # This avoids a newer Innertube path on installations where
-                # YouTube is currently returning LOGIN_REQUIRED to that path.
-                "disable_innertube": ["1"],
             },
             "youtubepot-bgutilhttp": {
-                # The provider expects one scalar base_url value.
                 "base_url": BGUTIL_URL,
             },
         },
@@ -160,27 +159,65 @@ def _youtube_oembed(url: str) -> Optional[dict]:
     except Exception:
         return None
 
+def _video_id(url: str) -> Optional[str]:
+    try:
+        from urllib.parse import parse_qs, urlparse
+        parsed = urlparse(url)
+        if parsed.hostname == "youtu.be":
+            return parsed.path.lstrip("/").split("/", 1)[0] or None
+        return parse_qs(parsed.query).get("v", [None])[0]
+    except Exception:
+        return None
+
 def _extract_info(url: str) -> dict:
     last_exc: Optional[Exception] = None
-    profiles = [PLAYER_CLIENTS]
-    if FALLBACK_PLAYER_CLIENTS and FALLBACK_PLAYER_CLIENTS != PLAYER_CLIENTS:
-        profiles.append(FALLBACK_PLAYER_CLIENTS)
+
+    # Each profile is tried independently. This is important: yt-dlp needs to
+    # see a client that actually works for the particular video before we fall
+    # back to oEmbed. It also means duration is returned whenever one of the
+    # working clients exposes it.
+    profiles: list[list[str]] = []
+    for client in PLAYER_CLIENTS + FALLBACK_PLAYER_CLIENTS:
+        if [client] not in profiles:
+            profiles.append([client])
 
     for clients in profiles:
         try:
             with yt_dlp.YoutubeDL(ytdlp_info_options(clients)) as ydl:
-                return ydl.extract_info(url, download=False)
+                data = ydl.extract_info(url, download=False)
+            if data:
+                return data
         except Exception as exc:
             last_exc = exc
+
+    # oEmbed is metadata-only. Keep it as a final title/thumbnail fallback,
+    # but deliberately do not pretend that it contains a duration.
+    meta = _youtube_oembed(url)
+    if meta and meta.get("title"):
+        video_id = _video_id(url)
+        return {
+            "id": video_id,
+            "title": meta.get("title"),
+            "uploader": meta.get("author_name") or "",
+            "channel": meta.get("author_name") or "",
+            "duration": None,
+            "thumbnail": meta.get("thumbnail_url") or (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else None),
+            "webpage_url": url,
+            "description": None,
+            "metadata_source": "youtube-oembed-fallback",
+            "yt_dlp_error": str(last_exc) if last_exc else None,
+        }
 
     assert last_exc is not None
     raise last_exc
 
 def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, list[Path]]:
     last_exc: Optional[Exception] = None
-    profiles = [PLAYER_CLIENTS]
-    if FALLBACK_PLAYER_CLIENTS and FALLBACK_PLAYER_CLIENTS != PLAYER_CLIENTS:
-        profiles.append(FALLBACK_PLAYER_CLIENTS)
+
+    profiles: list[list[str]] = []
+    for client in PLAYER_CLIENTS + FALLBACK_PLAYER_CLIENTS:
+        if [client] not in profiles:
+            profiles.append([client])
 
     for clients in profiles:
         try:
@@ -229,40 +266,20 @@ def info(request: InfoRequest, authorization: Optional[str] = Header(default=Non
     check_token(authorization)
     url = clean_url(request.url)
     try:
-        try:
-            data = _extract_info(url)
-            return {
-                "ok": True,
-                "id": data.get("id"),
-                "title": data.get("title"),
-                "uploader": data.get("uploader"),
-                "channel": data.get("channel"),
-                "duration": data.get("duration"),
-                "thumbnail": data.get("thumbnail"),
-                "webpage_url": data.get("webpage_url") or url,
-                "description": data.get("description"),
-                "metadata_source": "yt-dlp",
-            }
-        except Exception as ytdlp_exc:
-            meta = _youtube_oembed(url)
-            if meta and meta.get("title"):
-                video_id = None
-                if "v=" in url:
-                    video_id = url.split("v=", 1)[1].split("&", 1)[0]
-                return {
-                    "ok": True,
-                    "id": video_id,
-                    "title": meta.get("title"),
-                    "uploader": meta.get("author_name") or "",
-                    "channel": meta.get("author_name") or "",
-                    "duration": None,
-                    "thumbnail": meta.get("thumbnail_url") or (f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else None),
-                    "webpage_url": url,
-                    "description": None,
-                    "metadata_source": "youtube-oembed-fallback",
-                    "yt_dlp_error": str(ytdlp_exc),
-                }
-            raise
+        data = _extract_info(url)
+        return {
+            "ok": True,
+            "id": data.get("id"),
+            "title": data.get("title"),
+            "uploader": data.get("uploader"),
+            "channel": data.get("channel"),
+            "duration": data.get("duration"),
+            "thumbnail": data.get("thumbnail"),
+            "webpage_url": data.get("webpage_url") or url,
+            "description": data.get("description"),
+            "metadata_source": data.get("metadata_source", "yt-dlp"),
+            "yt_dlp_error": data.get("yt_dlp_error"),
+        }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
