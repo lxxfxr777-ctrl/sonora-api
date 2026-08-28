@@ -1,7 +1,16 @@
 services:
-  # Main Sonora API + local yt-dlp worker.
+  # =========================================================
+  # SONORA - SINGLE FREE WEB SERVICE
+  # =========================================================
+  #
+  # Everything runs inside one Render container:
+  #   FastAPI -> local worker -> yt-dlp -> bgutil -> FFmpeg
+  #
+  # Cobalt and the remote yt-session-generator are intentionally NOT used.
+  # This avoids the extra Render services and the cross-service YouTube
+  # session/IP problem that caused repeated /token 503s and deploy timeouts.
   - type: web
-    name: sonora-youtube-api
+    name: sonora-api
     runtime: docker
     plan: free
     region: oregon
@@ -9,69 +18,15 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      # Cobalt is the primary download backend. It has its own YouTube
-      # session generator, so Sonora no longer depends on browser cookies.
-      - key: COBALT_URL
-        fromService:
-          name: sonora-cobalt
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
-
-  # Independent download backend. It runs in a different Render region so
-  # YouTube sees a different egress path from the main API/worker.
-  - type: web
-    name: sonora-cobalt
-    runtime: image
-    plan: free
-    region: frankfurt
-    autoDeploy: true
-    image:
-      url: ghcr.io/imputnet/cobalt:11
-    healthCheckPath: /
-    envVars:
-      # Render web services receive traffic on PORT=10000 by default.
-      - key: API_PORT
-        value: "10000"
-      - key: API_URL
-        fromService:
-          name: sonora-cobalt
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: CORS_WILDCARD
-        value: "0"
-      - key: CORS_URL
-        fromService:
-          name: sonora-youtube-api
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
-      # Cobalt itself requests /get_pot from this service.
-      - key: YOUTUBE_SESSION_SERVER
-        fromService:
-          name: sonora-ytsession
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: YOUTUBE_SESSION_INNERTUBE_CLIENT
-        value: WEB_EMBEDDED
-      - key: YOUTUBE_ALLOW_BETTER_AUDIO
-        value: "1"
-      - key: FORCE_LOCAL_PROCESSING
-        value: "always"
-      - key: RATELIMIT_MAX
-        value: "10"
-      - key: TUNNEL_RATELIMIT_MAX
-        value: "20"
-      - key: SESSION_RATELIMIT_MAX
-        value: "10"
-
-  # Custom Render-safe session generator. The Dockerfile wraps the official
-  # webserver image and enables Chromium no_sandbox because Render runs the
-  # container as root. It continuously generates fresh PO Tokens and visitor
-  # data; no cookies.txt is needed.
-  - type: web
-    name: sonora-ytsession
-    runtime: docker
-    plan: free
-    region: frankfurt
-    dockerfilePath: ./session-generator/Dockerfile
-    healthCheckPath: /token
-    autoDeploy: true
+      - key: SONORA_LOCAL_WORKER
+        value: "true"
+      - key: YTDLP_POT_PROVIDER_URL
+        value: "http://127.0.0.1:4416"
+      - key: YTDLP_JS_RUNTIME
+        value: "deno"
+      - key: YTDLP_PLAYER_PROFILES
+        value: "mweb;web_safari;tv_embedded;web_embedded;android_vr"
+      # Cookies remain optional and disabled by default. Only enable them
+      # when a specific YouTube video actually requires an account session.
+      - key: YTDLP_USE_COOKIES
+        value: "false"
