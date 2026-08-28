@@ -6,10 +6,8 @@ services:
   # Everything runs inside one Render container:
   #   FastAPI -> local worker -> yt-dlp -> bgutil -> FFmpeg
   #
-  # If YouTube rejects Render's datacenter IP, worker.py automatically
-  # falls back to public Piped API instances and converts the returned
-  # audio locally with FFmpeg. Cobalt and the remote session-generator
-  # are intentionally NOT used.
+  # YouTube cookies can be uploaded temporarily through the protected
+  # /api/cookies/upload endpoint. The cookie file is NOT stored in GitHub.
   - type: web
     name: sonora-api
     runtime: docker
@@ -29,10 +27,12 @@ services:
         value: "mweb;web_safari;tv_embedded;web_embedded;android_vr"
       - key: YTDLP_USE_COOKIES
         value: "true"
-      # YTDLP_COOKIES_B64 (el contenido real de las cookies, en base64)
-      # NO va aqui porque este repo es publico. Debe configurarse a mano
-      # como variable de entorno "secret" desde el dashboard de Render:
-      # Service -> Environment -> Add Environment Variable.
+      # Temporary cookies uploaded through the API expire after 6 hours.
+      # The actual cookie contents must NEVER be committed to this repo.
+      - key: YTDLP_COOKIES_TTL_SECONDS
+        value: "21600"
+      # YTDLP_COOKIES_API_KEY must be configured manually as a SECRET in
+      # Render Environment before using the cookie upload endpoint.
       - key: PIPED_INSTANCE_TTL
         value: "900"
       - key: PIPED_TIMEOUT
