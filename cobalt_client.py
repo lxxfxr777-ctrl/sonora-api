@@ -37,7 +37,7 @@ def _request(url: str, payload: dict, timeout: int = 600) -> dict:
     except HTTPError as exc:
         try:
             raw = exc.read()
-            detail = raw.decode("utf-8", errors="replace")[:800]
+            detail = raw.decode("utf-8", errors="replace")[:1200]
         except Exception:
             detail = str(exc)
         raise CobaltDownloadError(f"Cobalt respondió HTTP {exc.code}: {detail}") from exc
@@ -51,6 +51,18 @@ def _request(url: str, payload: dict, timeout: int = 600) -> dict:
     if not isinstance(data, dict):
         raise CobaltDownloadError("Cobalt devolvió un JSON inválido.")
     return data
+
+
+def _error_text(data: dict) -> str:
+    error = data.get("error")
+    if isinstance(error, dict):
+        code = error.get("code")
+        context = error.get("context")
+        if code and context:
+            return f"{code}: {context}"
+        if code:
+            return str(code)
+    return str(data.get("text") or error or "Cobalt no pudo procesar el enlace.")
 
 
 def download(url: str, fmt: str, workdir: Path) -> tuple[Path, str]:
@@ -70,12 +82,12 @@ def download(url: str, fmt: str, workdir: Path) -> tuple[Path, str]:
     status = data.get("status")
 
     if status == "error":
-        raise CobaltDownloadError(str(data.get("text") or data.get("error") or "Cobalt no pudo procesar el enlace."))
+        raise CobaltDownloadError(_error_text(data))
 
-    if status != "tunnel" or not data.get("url"):
+    if status not in {"tunnel", "redirect"} or not data.get("url"):
         raise CobaltDownloadError(f"Cobalt devolvió un estado no utilizable: {status!r}")
 
-    tunnel_url = str(data["url"])
+    media_url = str(data["url"])
     filename = str(data.get("filename") or f"audio.{fmt}")
     suffix = f".{fmt}"
     if not filename.lower().endswith(suffix):
@@ -83,7 +95,7 @@ def download(url: str, fmt: str, workdir: Path) -> tuple[Path, str]:
 
     output = workdir / filename
     request = Request(
-        tunnel_url,
+        media_url,
         headers={"User-Agent": "Sonora/1.0", "Accept": "*/*"},
         method="GET",
     )
@@ -96,7 +108,7 @@ def download(url: str, fmt: str, workdir: Path) -> tuple[Path, str]:
                 target.write(chunk)
     except Exception as exc:
         output.unlink(missing_ok=True)
-        raise CobaltDownloadError(f"No se pudo descargar el archivo desde el túnel de Cobalt: {exc}") from exc
+        raise CobaltDownloadError(f"No se pudo descargar el archivo desde Cobalt: {exc}") from exc
 
     if not output.is_file() or output.stat().st_size == 0:
         output.unlink(missing_ok=True)
