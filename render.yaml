@@ -40,8 +40,7 @@ services:
           name: sonora-youtube-api
           type: web
           envVarKey: RENDER_EXTERNAL_URL
-      # Cobalt itself fetches /get_pot from this service; the current Cobalt
-      # code replaces the pathname with /get_pot automatically.
+      # Cobalt itself requests /get_pot from this service.
       - key: YOUTUBE_SESSION_SERVER
         fromService:
           name: sonora-ytsession
@@ -51,8 +50,6 @@ services:
         value: WEB_EMBEDDED
       - key: YOUTUBE_ALLOW_BETTER_AUDIO
         value: "1"
-      # Process the media inside the Cobalt instance instead of relying on a
-      # long-lived external redirect/tunnel for the final file.
       - key: FORCE_LOCAL_PROCESSING
         value: "always"
       - key: RATELIMIT_MAX
@@ -62,12 +59,14 @@ services:
       - key: SESSION_RATELIMIT_MAX
         value: "10"
 
-  # Generates fresh YouTube PO Tokens/visitor data automatically. No
-  # cookies.txt or Google account session is stored in Sonora.
+  # Custom Render-safe session generator. The Dockerfile wraps the official
+  # image and enables Chromium no_sandbox because Render image services run
+  # the container as root. It continuously generates fresh PO Tokens and
+  # visitor data; no cookies.txt is needed.
   - type: web
     name: sonora-ytsession
-    runtime: image
+    runtime: docker
     plan: free
     region: frankfurt
-    image:
-      url: ghcr.io/imputnet/yt-session-generator:webserver
+    dockerfilePath: ./session-generator/Dockerfile
+    healthCheckPath: /
