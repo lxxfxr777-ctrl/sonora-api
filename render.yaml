@@ -69,4 +69,4 @@ services:
     plan: free
     region: frankfurt
     dockerfilePath: ./session-generator/Dockerfile
-    healthCheckPath: /
+    healthCheckPath: /token
