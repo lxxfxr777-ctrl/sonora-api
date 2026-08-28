@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import net_ipv4  # noqa: F401  (debe importarse primero: fuerza DNS IPv4)
+
 import base64
 import json
 import os
