@@ -3,6 +3,7 @@ from __future__ import annotations
 import net_ipv4  # noqa: F401  (debe importarse primero: fuerza DNS IPv4)
 
 import base64
+import concurrent.futures
 import json
 import os
 import shutil
@@ -38,6 +39,16 @@ PIPED_DISCOVERY_URL = os.getenv(
 PIPED_INSTANCE_TTL = max(60, int(os.getenv("PIPED_INSTANCE_TTL", "600")))
 PIPED_TIMEOUT = max(10, int(os.getenv("PIPED_TIMEOUT", "45")))
 PIPED_INSTANCES_ENV = os.getenv("PIPED_API_INSTANCES", "").strip()
+
+# Muchas instancias públicas de Piped están caídas, con DNS roto o
+# bloqueadas en cualquier momento dado. En vez de probarlas una por una
+# en serie (lo que puede acumular minutos de espera y disparar un 502
+# antes de llegar a una instancia sana), las probamos EN PARALELO y nos
+# quedamos con la primera que responda con metadata válida.
+PIPED_RACE_TIMEOUT = max(4, int(os.getenv("PIPED_RACE_TIMEOUT", "8")))
+PIPED_RACE_MAX_WORKERS = max(2, int(os.getenv("PIPED_RACE_MAX_WORKERS", "8")))
+PIPED_RACE_DEADLINE = max(10, int(os.getenv("PIPED_RACE_DEADLINE", "20")))
+PIPED_RACE_MAX_CANDIDATES = max(1, int(os.getenv("PIPED_RACE_MAX_CANDIDATES", "4")))
 
 # These are only a last-resort bootstrap list. The service first tries to
 # refresh the public Piped instance list from TeamPiped's documentation.
@@ -271,7 +282,7 @@ def _piped_instances(force_refresh: bool = False) -> list[str]:
     return combined
 
 
-def _piped_streams(video_id: str, instance: str) -> dict:
+def _piped_streams(video_id: str, instance: str, timeout: Optional[int] = None) -> dict:
     endpoint = f"{instance.rstrip('/')}/streams/{quote(video_id, safe='')}"
     request = Request(
         endpoint,
@@ -281,7 +292,7 @@ def _piped_streams(video_id: str, instance: str) -> dict:
         },
         method="GET",
     )
-    with urlopen(request, timeout=PIPED_TIMEOUT) as response:
+    with urlopen(request, timeout=timeout or PIPED_TIMEOUT) as response:
         if response.status < 200 or response.status >= 300:
             raise RuntimeError(f"Piped HTTP {response.status}")
         data = json.loads(response.read().decode("utf-8", errors="replace"))
@@ -311,57 +322,106 @@ def _choose_audio_stream(data: dict) -> dict:
     return max(valid, key=bitrate)
 
 
+def _race_piped_metadata(video_id: str, instances: list[str]) -> list[tuple[str, dict]]:
+    """
+    Prueba varias instancias de Piped EN PARALELO (no una por una) y
+    devuelve la lista de las que respondieron con metadata usable,
+    ordenadas por velocidad de respuesta (la más rápida primero).
+
+    Esto es lo que evita que instancias muertas (DNS roto, timeout,
+    certificados inválidos) hagan que la petición completa se quede
+    esperando minutos antes de llegar a una instancia que sí funciona.
+    """
+    winners: list[tuple[str, dict]] = []
+    deadline = time.monotonic() + PIPED_RACE_DEADLINE
+    # Tras el primer ganador, damos un margen corto para que lleguen 1-2
+    # más (por si el primero falla al descargar el audio), pero sin
+    # quedarnos esperando a las instancias lentas o muertas.
+    grace_after_first = float(os.getenv("PIPED_RACE_GRACE", "1.5"))
+    first_winner_at: Optional[float] = None
+
+    # OJO: no usamos ThreadPoolExecutor como context manager. Su __exit__
+    # llama a shutdown(wait=True), lo que bloquearía hasta que TODAS las
+    # instancias (incluidas las muertas/lentas) terminaran, anulando el
+    # beneficio de la carrera. En su lugar cerramos manualmente sin
+    # esperar a los hilos que sigan pendientes.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=PIPED_RACE_MAX_WORKERS)
+    future_to_instance = {
+        pool.submit(_piped_streams, video_id, instance, PIPED_RACE_TIMEOUT): instance
+        for instance in instances
+    }
+    pending = set(future_to_instance.keys())
+    # Intervalo corto de sondeo: así podemos re-evaluar "¿ya deberíamos
+    # cortar?" con frecuencia, en vez de quedar atados a cuándo termina
+    # la ÚLTIMA future pendiente (que puede ser justo la instancia lenta).
+    poll_interval = 0.25
+
+    try:
+        while pending:
+            now = time.monotonic()
+            if now >= deadline:
+                break
+            if first_winner_at is not None and (now - first_winner_at) >= grace_after_first:
+                break
+
+            done, pending = concurrent.futures.wait(
+                pending, timeout=poll_interval, return_when=concurrent.futures.FIRST_COMPLETED
+            )
+
+            for future in done:
+                instance = future_to_instance[future]
+                try:
+                    data = future.result()
+                    _choose_audio_stream(data)  # valida que sí haya audio usable
+                    print(f"=== SONORA: Piped race winner: {instance} ===", flush=True)
+                    winners.append((instance, data))
+                    if first_winner_at is None:
+                        first_winner_at = time.monotonic()
+                except Exception as exc:
+                    print(f"=== SONORA: Piped race candidate failed: {instance}: {exc} ===", flush=True)
+
+            if len(winners) >= PIPED_RACE_MAX_CANDIDATES:
+                break
+    finally:
+        # cancel_futures evita que sigamos esperando a instancias que aún
+        # no habían empezado; las que ya están en vuelo simplemente se
+        # descartan cuando terminen (no bloquean esta función).
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    return winners
+
+
 def _piped_info(url: str) -> dict:
     video_id = _video_id(url)
     if not video_id:
         raise RuntimeError("Could not determine YouTube video ID")
 
-    last_exc: Optional[Exception] = None
     instances = _piped_instances()
-    for index, instance in enumerate(instances):
-        try:
-            print(f"=== SONORA: Piped metadata attempt {index + 1}/{len(instances)} {instance} ===", flush=True)
-            data = _piped_streams(video_id, instance)
-            return {
-                "id": video_id,
-                "title": data.get("title") or "audio",
-                "uploader": data.get("uploader") or data.get("uploaderName") or "",
-                "channel": data.get("uploader") or data.get("uploaderName") or "",
-                "duration": data.get("duration"),
-                "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
-                "webpage_url": url,
-                "description": data.get("description"),
-                "metadata_source": "piped-fallback",
-                "piped_instance": instance,
-            }
-        except Exception as exc:
-            print(f"=== SONORA: Piped instance failed: {instance}: {exc} ===", flush=True)
-            last_exc = exc
+    winners = _race_piped_metadata(video_id, instances)
 
-    # Refresh once in case the public instance list changed while this
-    # process was running.
-    refreshed = _piped_instances(force_refresh=True)
-    for instance in refreshed:
-        if instance in instances:
-            continue
-        try:
-            data = _piped_streams(video_id, instance)
-            return {
-                "id": video_id,
-                "title": data.get("title") or "audio",
-                "uploader": data.get("uploader") or data.get("uploaderName") or "",
-                "channel": data.get("uploader") or data.get("uploaderName") or "",
-                "duration": data.get("duration"),
-                "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
-                "webpage_url": url,
-                "description": data.get("description"),
-                "metadata_source": "piped-fallback",
-                "piped_instance": instance,
-            }
-        except Exception as exc:
-            last_exc = exc
+    if not winners:
+        # Refresh once en caso de que la lista pública haya cambiado, y
+        # reintenta la carrera solo con instancias que no probamos ya.
+        refreshed = [i for i in _piped_instances(force_refresh=True) if i not in instances]
+        if refreshed:
+            winners = _race_piped_metadata(video_id, refreshed)
 
-    raise RuntimeError(f"All Piped instances failed: {last_exc}")
+    if not winners:
+        raise RuntimeError("All Piped instances failed (timeout, DNS, or HTTP errors)")
+
+    instance, data = winners[0]
+    return {
+        "id": video_id,
+        "title": data.get("title") or "audio",
+        "uploader": data.get("uploader") or data.get("uploaderName") or "",
+        "channel": data.get("uploader") or data.get("uploaderName") or "",
+        "duration": data.get("duration"),
+        "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+        "webpage_url": url,
+        "description": data.get("description"),
+        "metadata_source": "piped-fallback",
+        "piped_instance": instance,
+    }
 
 
 def _ffmpeg_convert(input_path: Path, output_path: Path, fmt: str) -> None:
@@ -385,62 +445,68 @@ def _piped_download(url: str, workdir: Path, fmt: str) -> tuple[dict, list[Path]
     if not video_id:
         raise RuntimeError("Could not determine YouTube video ID")
 
-    last_exc: Optional[Exception] = None
     instances = _piped_instances()
-    tried = set()
+    winners = _race_piped_metadata(video_id, instances)
 
-    for refresh_round in range(2):
-        for instance in _piped_instances(force_refresh=(refresh_round == 1)):
-            if instance in tried:
-                continue
-            tried.add(instance)
-            input_path = workdir / "piped-source"
-            output_path = workdir / f"piped-audio.{fmt}"
-            try:
-                print(f"=== SONORA: Piped download attempt {instance} ===", flush=True)
-                data = _piped_streams(video_id, instance)
-                stream = _choose_audio_stream(data)
-                stream_url = str(stream["url"])
+    if not winners:
+        refreshed = [i for i in _piped_instances(force_refresh=True) if i not in instances]
+        if refreshed:
+            winners = _race_piped_metadata(video_id, refreshed)
 
-                request = Request(
-                    stream_url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/147.0 Safari/537.36",
-                        "Accept": "*/*",
-                        "Referer": "https://piped.video/",
-                    },
-                    method="GET",
-                )
-                with urlopen(request, timeout=PIPED_TIMEOUT) as response, input_path.open("wb") as destination:
-                    while True:
-                        chunk = response.read(1024 * 256)
-                        if not chunk:
-                            break
-                        destination.write(chunk)
+    if not winners:
+        raise RuntimeError("All Piped instances failed (timeout, DNS, or HTTP errors) before download could start")
 
-                if not input_path.is_file() or input_path.stat().st_size == 0:
-                    raise RuntimeError("Piped returned an empty audio stream")
+    last_exc: Optional[Exception] = None
 
-                _ffmpeg_convert(input_path, output_path, fmt)
-                return {
-                    "id": video_id,
-                    "title": data.get("title") or "audio",
-                    "uploader": data.get("uploader") or data.get("uploaderName") or "",
-                    "channel": data.get("uploader") or data.get("uploaderName") or "",
-                    "duration": data.get("duration"),
-                    "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
-                    "webpage_url": url,
-                    "metadata_source": "piped-fallback",
-                    "piped_instance": instance,
-                }, [output_path]
-            except Exception as exc:
-                print(f"=== SONORA: Piped download failed on {instance}: {exc} ===", flush=True)
-                last_exc = exc
-                for item in (input_path, output_path):
-                    try:
-                        item.unlink()
-                    except OSError:
-                        pass
+    # Solo iteramos sobre las pocas instancias que ya demostraron responder
+    # (ordenadas de más rápida a más lenta), no sobre la lista completa.
+    for instance, data in winners:
+        input_path = workdir / "piped-source"
+        output_path = workdir / f"piped-audio.{fmt}"
+        try:
+            print(f"=== SONORA: Piped download attempt {instance} ===", flush=True)
+            stream = _choose_audio_stream(data)
+            stream_url = str(stream["url"])
+
+            request = Request(
+                stream_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/147.0 Safari/537.36",
+                    "Accept": "*/*",
+                    "Referer": "https://piped.video/",
+                },
+                method="GET",
+            )
+            with urlopen(request, timeout=PIPED_TIMEOUT) as response, input_path.open("wb") as destination:
+                while True:
+                    chunk = response.read(1024 * 256)
+                    if not chunk:
+                        break
+                    destination.write(chunk)
+
+            if not input_path.is_file() or input_path.stat().st_size == 0:
+                raise RuntimeError("Piped returned an empty audio stream")
+
+            _ffmpeg_convert(input_path, output_path, fmt)
+            return {
+                "id": video_id,
+                "title": data.get("title") or "audio",
+                "uploader": data.get("uploader") or data.get("uploaderName") or "",
+                "channel": data.get("uploader") or data.get("uploaderName") or "",
+                "duration": data.get("duration"),
+                "thumbnail": data.get("thumbnailUrl") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                "webpage_url": url,
+                "metadata_source": "piped-fallback",
+                "piped_instance": instance,
+            }, [output_path]
+        except Exception as exc:
+            print(f"=== SONORA: Piped download failed on {instance}: {exc} ===", flush=True)
+            last_exc = exc
+            for item in (input_path, output_path):
+                try:
+                    item.unlink()
+                except OSError:
+                    pass
 
     raise RuntimeError(f"All Piped download attempts failed: {last_exc}")
 

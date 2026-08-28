@@ -33,3 +33,16 @@ services:
         value: "900"
       - key: PIPED_TIMEOUT
         value: "12"
+      # A partir de aqui: las instancias publicas de Piped se prueban EN
+      # PARALELO (carrera) en vez de una por una, para no acumular
+      # minutos de espera cuando varias estan caidas/con DNS roto.
+      - key: PIPED_RACE_DEADLINE
+        value: "15"
+      - key: PIPED_RACE_TIMEOUT
+        value: "8"
+      - key: PIPED_RACE_MAX_WORKERS
+        value: "8"
+      - key: PIPED_RACE_MAX_CANDIDATES
+        value: "3"
+      - key: PIPED_RACE_GRACE
+        value: "1.5"
