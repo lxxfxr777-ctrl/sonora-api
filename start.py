@@ -56,10 +56,9 @@ def main() -> None:
     wait_http(f"http://127.0.0.1:{BGUTIL_PORT}/ping")
     print(f"[OK] bgutil on 127.0.0.1:{BGUTIL_PORT}", flush=True)
 
-    print("=== SONORA: starting local worker ===", flush=True)
+    print("=== SONORA: starting local worker + Invidious fallback ===", flush=True)
     worker = subprocess.Popen([
-        sys.executable, "-m", "uvicorn", "worker:app",
-        "--host", "127.0.0.1", "--port", str(WORKER_PORT)
+        sys.executable, "worker_boot.py"
     ])
     processes.append(worker)
     wait_http(f"http://127.0.0.1:{WORKER_PORT}/health")
