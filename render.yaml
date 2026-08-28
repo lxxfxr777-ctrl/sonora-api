@@ -6,9 +6,10 @@ services:
   # Everything runs inside one Render container:
   #   FastAPI -> local worker -> yt-dlp -> bgutil -> FFmpeg
   #
-  # Cobalt and the remote yt-session-generator are intentionally NOT used.
-  # This avoids the extra Render services and the cross-service YouTube
-  # session/IP problem that caused repeated /token 503s and deploy timeouts.
+  # If YouTube rejects Render's datacenter IP, worker.py automatically
+  # falls back to public Piped API instances and converts the returned
+  # audio locally with FFmpeg. Cobalt and the remote session-generator
+  # are intentionally NOT used.
   - type: web
     name: sonora-api
     runtime: docker
@@ -26,7 +27,9 @@ services:
         value: "deno"
       - key: YTDLP_PLAYER_PROFILES
         value: "mweb;web_safari;tv_embedded;web_embedded;android_vr"
-      # Cookies remain optional and disabled by default. Only enable them
-      # when a specific YouTube video actually requires an account session.
       - key: YTDLP_USE_COOKIES
         value: "false"
+      - key: PIPED_INSTANCE_TTL
+        value: "900"
+      - key: PIPED_TIMEOUT
+        value: "12"
