@@ -8,16 +8,22 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+from cobalt_client import CobaltDownloadError, enabled as cobalt_enabled, download as cobalt_download
 
 SUPPORTED_FORMATS = {"mp3", "m4a", "opus", "wav"}
 ProgressCallback = Callable[[dict[str, Any]], None]
 
+
 class InvalidYouTubeURLError(ValueError):
     pass
 
+
 class DownloadFailedError(RuntimeError):
     pass
+
 
 def validate_youtube_url(url: str) -> str:
     url = url.strip()
@@ -33,6 +39,7 @@ def validate_youtube_url(url: str) -> str:
         raise InvalidYouTubeURLError("La URL no parece ser un enlace válido de YouTube.")
     return url
 
+
 def _get_worker_url() -> str:
     if os.environ.get("SONORA_LOCAL_WORKER", "").strip().lower() in {"1", "true", "yes", "on"}:
         return "http://127.0.0.1:8787"
@@ -44,8 +51,10 @@ def _get_worker_url() -> str:
         raise DownloadFailedError("WORKER_URL debe comenzar con http:// o https://.")
     return worker_url
 
+
 def _get_worker_token() -> str:
     return os.environ.get("WORKER_TOKEN", "").strip()
+
 
 def _build_headers(content_type: str = "application/json") -> dict[str, str]:
     headers = {"Content-Type": content_type, "Accept": "application/json"}
@@ -53,6 +62,7 @@ def _build_headers(content_type: str = "application/json") -> dict[str, str]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
 
 def _worker_request(endpoint: str, payload: dict[str, Any], timeout: int = 300) -> tuple[bytes, str]:
     worker_url = _get_worker_url()
@@ -67,13 +77,14 @@ def _worker_request(endpoint: str, payload: dict[str, Any], timeout: int = 300) 
             error_body = exc.read().decode("utf-8", errors="replace")
         except Exception:
             error_body = str(exc)
-        raise DownloadFailedError(f"Worker respondió HTTP {exc.code}: {error_body[:500]}") from exc
+        raise DownloadFailedError(f"Worker respondió HTTP {exc.code}: {error_body[:800]}") from exc
     except URLError as exc:
         raise DownloadFailedError(f"No se pudo conectar con el worker en {worker_url}. Detalles: {exc}") from exc
     except TimeoutError as exc:
         raise DownloadFailedError("El worker tardó demasiado en responder.") from exc
     except Exception as exc:
         raise DownloadFailedError(f"Error comunicándose con el worker: {exc}") from exc
+
 
 def _decode_json_response(body: bytes) -> dict[str, Any]:
     try:
@@ -84,6 +95,7 @@ def _decode_json_response(body: bytes) -> dict[str, Any]:
         raise DownloadFailedError("El worker devolvió un JSON inválido.")
     return data
 
+
 def _worker_info(url: str) -> dict[str, Any]:
     body, content_type = _worker_request("/info", {"url": url}, timeout=120)
     if "application/json" not in content_type.lower():
@@ -92,6 +104,18 @@ def _worker_info(url: str) -> dict[str, Any]:
     if not data.get("ok"):
         raise DownloadFailedError(str(data.get("detail", "El worker no pudo obtener la información del vídeo.")))
     return data
+
+
+def _oembed_info(url: str) -> dict[str, Any] | None:
+    try:
+        endpoint = "https://www.youtube.com/oembed?url=" + quote(url, safe="") + "&format=json"
+        request = Request(endpoint, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with urlopen(request, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
 
 def get_video_info(url: str) -> dict[str, Any]:
     validate_youtube_url(url)
@@ -120,57 +144,106 @@ def get_video_info(url: str) -> dict[str, Any]:
             "webpage_url": info.get("webpage_url") or url,
         }
 
+
+def _cobalt_fallback(url: str, audio_format: str, temp_dir: Path) -> tuple[Path, str, str]:
+    if not cobalt_enabled():
+        raise DownloadFailedError("Cobalt fallback no está configurado.")
+    try:
+        output_file, filename = cobalt_download(url, audio_format, temp_dir)
+    except CobaltDownloadError as exc:
+        raise DownloadFailedError(str(exc)) from exc
+
+    stem = output_file.stem.strip() or "audio"
+    info = _oembed_info(url) or {}
+    title = info.get("title") or stem
+    uploader = info.get("author_name") or ""
+    return output_file, title, uploader
+
+
 def download_audio(url: str, audio_format: str = "mp3", progress_callback: ProgressCallback | None = None) -> tuple[Path, str, str]:
     validate_youtube_url(url)
     audio_format = audio_format.lower().strip()
     if audio_format not in SUPPORTED_FORMATS:
         raise ValueError(f"Formato no soportado: {audio_format}. Usa uno de: {', '.join(sorted(SUPPORTED_FORMATS))}")
 
-    # IMPORTANT: do not call /info before /download.  /info is metadata-only
-    # and can legitimately fail on a client that is blocked while /download
-    # still has a viable fallback client (for example android_vr format 18).
     temp_dir = Path(tempfile.mkdtemp(prefix="yt-audio-worker-"))
     try:
-        body, content_type = _worker_request(
-            "/download",
-            {"url": url, "format": audio_format},
-            timeout=600,
-        )
-        if "application/json" in content_type.lower():
-            try:
-                error_data = _decode_json_response(body)
-                detail = error_data.get("detail", "El worker no pudo descargar el audio.")
-            except Exception:
-                detail = body.decode("utf-8", errors="replace")[:500]
-            raise DownloadFailedError(str(detail))
+        worker_error: Exception | None = None
 
-        output_file = temp_dir / f"audio.{audio_format}"
-        output_file.write_bytes(body)
-        if output_file.stat().st_size == 0:
-            raise DownloadFailedError("El worker devolvió un archivo de audio vacío.")
-
-        # Metadata is deliberately best-effort after the binary download.  It
-        # must never block a successful audio download.
-        title = "audio"
-        uploader = ""
+        # Primary backend: the local yt-dlp worker with multiple current
+        # YouTube clients. This keeps the existing architecture intact.
         try:
-            info = _worker_info(url)
-            title = info.get("title") or title
-            uploader = info.get("uploader") or info.get("channel") or ""
-        except Exception:
-            pass
+            body, content_type = _worker_request(
+                "/download",
+                {"url": url, "format": audio_format},
+                timeout=600,
+            )
+            if "application/json" in content_type.lower():
+                try:
+                    error_data = _decode_json_response(body)
+                    detail = error_data.get("detail", "El worker no pudo descargar el audio.")
+                except Exception:
+                    detail = body.decode("utf-8", errors="replace")[:800]
+                raise DownloadFailedError(str(detail))
 
-        if progress_callback:
+            output_file = temp_dir / f"audio.{audio_format}"
+            output_file.write_bytes(body)
+            if output_file.stat().st_size == 0:
+                raise DownloadFailedError("El worker devolvió un archivo de audio vacío.")
+
+            title = "audio"
+            uploader = ""
             try:
-                progress_callback({
-                    "status": "finished",
-                    "filename": str(output_file),
-                    "title": title,
-                    "uploader": uploader,
-                })
+                info = _worker_info(url)
+                title = info.get("title") or title
+                uploader = info.get("uploader") or info.get("channel") or ""
             except Exception:
-                pass
-        return output_file, title, uploader
+                meta = _oembed_info(url) or {}
+                title = meta.get("title") or title
+                uploader = meta.get("author_name") or uploader
+
+            if progress_callback:
+                try:
+                    progress_callback({
+                        "status": "finished",
+                        "filename": str(output_file),
+                        "title": title,
+                        "uploader": uploader,
+                    })
+                except Exception:
+                    pass
+            return output_file, title, uploader
+        except Exception as exc:
+            worker_error = exc
+            print(f"=== SONORA: primary yt-dlp download failed: {exc} ===", flush=True)
+
+        # Independent backend: self-hosted Cobalt. It uses its own YouTube
+        # extraction stack and can run from a different Render region/IP, so a
+        # YouTube block affecting the primary worker does not automatically
+        # break the download path.
+        if cobalt_enabled():
+            try:
+                output_file, title, uploader = _cobalt_fallback(url, audio_format, temp_dir)
+                if progress_callback:
+                    try:
+                        progress_callback({
+                            "status": "finished",
+                            "filename": str(output_file),
+                            "title": title,
+                            "uploader": uploader,
+                            "backend": "cobalt",
+                        })
+                    except Exception:
+                        pass
+                return output_file, title, uploader
+            except Exception as exc:
+                print(f"=== SONORA: Cobalt fallback failed: {exc} ===", flush=True)
+                raise DownloadFailedError(
+                    f"Fallaron los dos motores de descarga. yt-dlp: {worker_error}. Cobalt: {exc}"
+                ) from exc
+
+        assert worker_error is not None
+        raise worker_error
     except DownloadFailedError:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
