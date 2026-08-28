@@ -1,8 +1,68 @@
 services:
+  # Main Sonora API + local yt-dlp worker.
   - type: web
     name: sonora-youtube-api
     runtime: docker
     plan: free
+    region: oregon
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     autoDeploy: true
+    envVars:
+      # Render injects the public URL of the Cobalt service automatically.
+      - key: COBALT_URL
+        fromService:
+          name: sonora-cobalt
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  # Independent download backend.  It runs in a different Render region so
+  # YouTube sees a different egress IP from the main API/worker.
+  - type: web
+    name: sonora-cobalt
+    runtime: image
+    plan: free
+    region: frankfurt
+    image:
+      url: ghcr.io/imputnet/cobalt:11
+    healthCheckPath: /
+    envVars:
+      - key: API_URL
+        fromService:
+          name: sonora-cobalt
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CORS_WILDCARD
+        value: "0"
+      - key: CORS_URL
+        fromService:
+          name: sonora-youtube-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: YOUTUBE_SESSION_SERVER
+        fromService:
+          name: sonora-ytsession
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: YOUTUBE_SESSION_INNERTUBE_CLIENT
+        value: WEB_EMBEDDED
+      - key: YOUTUBE_ALLOW_BETTER_AUDIO
+        value: "1"
+      - key: RATELIMIT_MAX
+        value: "10"
+      - key: TUNNEL_RATELIMIT_MAX
+        value: "20"
+      - key: SESSION_RATELIMIT_MAX
+        value: "10"
+
+  # Generates fresh YouTube PO Tokens/visitor data automatically.  No
+  # cookies.txt or Google account session is stored in Sonora.
+  - type: web
+    name: sonora-ytsession
+    runtime: image
+    plan: free
+    region: frankfurt
+    image:
+      url: ghcr.io/imputnet/yt-session-generator:webserver
+    healthCheckPath: /token
+    autoDeploy: false
