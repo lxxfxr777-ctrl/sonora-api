@@ -22,21 +22,23 @@ BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip
 YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
 
-# Current yt-dlp guidance is to prefer the normal/default clients and use
-# web_embedded as a fallback. mweb has recently become unreliable on some
-# datacenter IPs even when a PO-token provider is available.
+# YouTube's current extractor rules increasingly require PO tokens for the
+# clients used by normal web requests. The bgutil provider bundled in this
+# container can generate those tokens automatically. mweb is the client
+# recommended by the current yt-dlp guidance for this setup.
 PLAYER_CLIENTS = [
     item.strip()
-    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "default,web_embedded").split(",")
+    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "mweb").split(",")
     if item.strip()
 ]
 
-# A second profile is useful when YouTube rejects the default client set.
-# It deliberately avoids mweb as the first fallback because recent yt-dlp
-# reports show intermittent LOGIN_REQUIRED/403 responses for mweb.
+# If mweb is rejected by YouTube, try clients that can still expose playable
+# formats without requiring an account cookie. web_safari can provide HLS
+# formats that are useful as a second route; web_embedded is kept as a final
+# compatibility fallback for videos that allow embedding.
 FALLBACK_PLAYER_CLIENTS = [
     item.strip()
-    for item in os.getenv("YTDLP_FALLBACK_PLAYER_CLIENTS", "android_vr,web_embedded").split(",")
+    for item in os.getenv("YTDLP_FALLBACK_PLAYER_CLIENTS", "web_safari,web_embedded").split(",")
     if item.strip()
 ]
 
@@ -99,8 +101,9 @@ def _base_options(player_clients: list[str]) -> dict:
         "noplaylist": True,
         "verbose": True,
         "force_ipv4": True,
-        "retries": 3,
-        "extractor_retries": 3,
+        "retries": 4,
+        "fragment_retries": 4,
+        "extractor_retries": 4,
         "socket_timeout": 30,
         "sleep_interval": 1,
         "max_sleep_interval": 3,
@@ -171,7 +174,7 @@ def _youtube_oembed(url: str) -> Optional[dict]:
         return None
 
 def _extract_info(url: str) -> dict:
-    """Try the primary client profile, then one conservative fallback."""
+    """Try the PO-token-backed profile, then conservative fallbacks."""
     last_exc: Optional[Exception] = None
     profiles = [PLAYER_CLIENTS]
     if FALLBACK_PLAYER_CLIENTS and FALLBACK_PLAYER_CLIENTS != PLAYER_CLIENTS:
@@ -206,8 +209,6 @@ def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, lis
             raise RuntimeError("yt-dlp completed but no converted audio file was produced.")
         except Exception as exc:
             last_exc = exc
-            # The same work directory may contain a partial artifact after a
-            # failed profile. Remove it before the next profile is attempted.
             for item in workdir.iterdir():
                 if item.is_file():
                     try:
@@ -260,9 +261,9 @@ def info(request: InfoRequest, authorization: Optional[str] = Header(default=Non
                 "metadata_source": "yt-dlp",
             }
         except Exception as ytdlp_exc:
-            # Restore the preview card even when YouTube blocks yt-dlp's
-            # player API. The media download still correctly fails until a
-            # valid YouTube session/cookie or another allowed route is used.
+            # Keep the preview card working when YouTube blocks yt-dlp's
+            # player endpoint. This fallback is metadata-only; /download
+            # still uses yt-dlp with the PO-token-backed profiles above.
             meta = _youtube_oembed(url)
             if meta and meta.get("title"):
                 video_id = None
