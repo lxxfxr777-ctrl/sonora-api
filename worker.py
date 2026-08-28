@@ -21,22 +21,25 @@ COOKIES_FILE = Path(os.getenv("YTDLP_COOKIES_FILE", "/app/cookies.txt"))
 BGUTIL_URL = os.getenv("YTDLP_POT_PROVIDER_URL", "http://127.0.0.1:4416").rstrip("/")
 YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
 YTDLP_COOKIES_B64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
+USE_COOKIES = os.getenv("YTDLP_USE_COOKIES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
-# IMPORTANT:
-# Do not make mweb the only client. Current YouTube enforcement can require
-# a PO token for mweb, while web_embedded does not require one but only works
-# for videos that are embeddable. web_safari can provide HLS formats without
-# requiring a GVS PO token at the moment. We therefore try the clients in a
-# practical order instead of failing immediately on mweb.
+# YouTube changes its extraction requirements frequently.  Keep clients
+# isolated so one blocked client does not poison the next attempt.
 PLAYER_CLIENTS = [
     item.strip()
-    for item in os.getenv("YTDLP_PLAYER_CLIENTS", "web_embedded,web_safari,mweb").split(",")
+    for item in os.getenv(
+        "YTDLP_PLAYER_CLIENTS",
+        "android_vr,web_embedded,web_safari,mweb",
+    ).split(",")
     if item.strip()
 ]
 
 FALLBACK_PLAYER_CLIENTS = [
     item.strip()
-    for item in os.getenv("YTDLP_FALLBACK_PLAYER_CLIENTS", "android_vr,tv_simply").split(",")
+    for item in os.getenv(
+        "YTDLP_FALLBACK_PLAYER_CLIENTS",
+        "tv_simply",
+    ).split(",")
     if item.strip()
 ]
 
@@ -59,8 +62,6 @@ def clean_url(url: str) -> str:
         raise HTTPException(status_code=400, detail="URL is required")
     if not any(host in url for host in ("youtube.com/", "youtu.be/", "music.youtube.com/")):
         raise HTTPException(status_code=400, detail="Only YouTube URLs are supported")
-    # Keep the original video URL semantics. yt-dlp accepts both YouTube and
-    # YouTube Music URLs, and the video ID is what matters to the extractor.
     return url
 
 def _ensure_env_cookie_file() -> Optional[Path]:
@@ -81,6 +82,10 @@ def _ensure_env_cookie_file() -> Optional[Path]:
     return path
 
 def _cookie_file() -> Optional[Path]:
+    # Cookies are OFF by default.  This prevents an expired/stale browser
+    # session from turning otherwise public videos into LOGIN_REQUIRED.
+    if not USE_COOKIES:
+        return None
     env_cookie_file = _ensure_env_cookie_file()
     if env_cookie_file:
         return env_cookie_file
@@ -88,24 +93,19 @@ def _cookie_file() -> Optional[Path]:
         return COOKIES_FILE
     return None
 
-def _base_options(player_clients: list[str]) -> dict:
-    # yt-dlp's current PO-token guidance recommends using a provider for
-    # clients that need it. We keep bgutil configured, but do NOT force
-    # fetch_pot=always or disable_innertube for every client: those switches
-    # can turn a perfectly usable web_embedded/web_safari extraction into a
-    # LOGIN_REQUIRED failure.
+def _base_options(player_clients: list[str], *, download: bool = False) -> dict:
     options = {
         "quiet": False,
         "no_warnings": False,
         "noplaylist": True,
         "verbose": True,
         "force_ipv4": True,
-        "retries": 5,
-        "fragment_retries": 5,
-        "extractor_retries": 5,
+        "retries": 4,
+        "fragment_retries": 4,
+        "extractor_retries": 3,
         "socket_timeout": 30,
         "sleep_interval": 1,
-        "max_sleep_interval": 4,
+        "max_sleep_interval": 3,
         "sleep_interval_requests": 1,
         "extractor_args": {
             "youtube": {
@@ -137,10 +137,20 @@ def ytdlp_info_options(player_clients: list[str]) -> dict:
     return options
 
 def ytdlp_download_options(workdir: Path, fmt: str, player_clients: list[str]) -> dict:
-    options = _base_options(player_clients)
+    options = _base_options(player_clients, download=True)
+
+    # android_vr can still expose the legacy pre-merged format 18 even when
+    # YouTube blocks the separate GVS audio formats.  Asking for 18 first lets
+    # ffmpeg extract the audio from that file and avoids the failing audio-only
+    # GVS request.  Other clients keep the normal best-audio selection.
+    if player_clients == ["android_vr"]:
+        requested_format = "18/best"
+    else:
+        requested_format = "bestaudio/best"
+
     options.update({
         "outtmpl": str(workdir / "%(title).120s-%(id)s.%(ext)s"),
-        "format": "bestaudio/best",
+        "format": requested_format,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": ALLOWED_FORMATS[fmt],
@@ -169,29 +179,29 @@ def _video_id(url: str) -> Optional[str]:
     except Exception:
         return None
 
-def _extract_info(url: str) -> dict:
-    last_exc: Optional[Exception] = None
-
-    # Each profile is tried independently. This is important: yt-dlp needs to
-    # see a client that actually works for the particular video before we fall
-    # back to oEmbed. It also means duration is returned whenever one of the
-    # working clients exposes it.
+def _profiles() -> list[list[str]]:
     profiles: list[list[str]] = []
     for client in PLAYER_CLIENTS + FALLBACK_PLAYER_CLIENTS:
         if [client] not in profiles:
             profiles.append([client])
+    return profiles
 
-    for clients in profiles:
+def _extract_info(url: str) -> dict:
+    last_exc: Optional[Exception] = None
+
+    for clients in _profiles():
         try:
+            print(f"=== SONORA: metadata attempt with {clients[0]} ===", flush=True)
             with yt_dlp.YoutubeDL(ytdlp_info_options(clients)) as ydl:
                 data = ydl.extract_info(url, download=False)
             if data:
                 return data
         except Exception as exc:
+            print(f"=== SONORA: metadata client {clients[0]} failed: {exc} ===", flush=True)
             last_exc = exc
 
-    # oEmbed is metadata-only. Keep it as a final title/thumbnail fallback,
-    # but deliberately do not pretend that it contains a duration.
+    # oEmbed is intentionally metadata-only.  The browser player supplies the
+    # duration on the frontend when yt-dlp cannot expose it.
     meta = _youtube_oembed(url)
     if meta and meta.get("title"):
         video_id = _video_id(url)
@@ -214,22 +224,23 @@ def _extract_info(url: str) -> dict:
 def _download_with_clients(url: str, workdir: Path, fmt: str) -> tuple[dict, list[Path]]:
     last_exc: Optional[Exception] = None
 
-    profiles: list[list[str]] = []
-    for client in PLAYER_CLIENTS + FALLBACK_PLAYER_CLIENTS:
-        if [client] not in profiles:
-            profiles.append([client])
-
-    for clients in profiles:
+    for clients in _profiles():
         try:
+            print(f"=== SONORA: download attempt with {clients[0]} ===", flush=True)
             with yt_dlp.YoutubeDL(ytdlp_download_options(workdir, fmt, clients)) as ydl:
                 data = ydl.extract_info(url, download=True)
-            files = [p for p in workdir.iterdir() if p.is_file() and p.suffix.lower() == f".{fmt}"]
+
+            files = [
+                p for p in workdir.iterdir()
+                if p.is_file() and p.suffix.lower() == f".{fmt}"
+            ]
             if files:
                 return data, files
             raise RuntimeError("yt-dlp completed but no converted audio file was produced.")
         except Exception as exc:
+            print(f"=== SONORA: download client {clients[0]} failed: {exc} ===", flush=True)
             last_exc = exc
-            for item in workdir.iterdir():
+            for item in list(workdir.iterdir()):
                 if item.is_file():
                     try:
                         item.unlink()
@@ -248,6 +259,7 @@ def root():
         "player_clients": PLAYER_CLIENTS,
         "fallback_player_clients": FALLBACK_PLAYER_CLIENTS,
         "cookies_configured": _cookie_file() is not None,
+        "cookies_enabled": USE_COOKIES,
         "pot_provider": BGUTIL_URL,
     }
 
@@ -256,6 +268,7 @@ def health():
     return {
         "status": "ok",
         "cookies_configured": _cookie_file() is not None,
+        "cookies_enabled": USE_COOKIES,
         "player_clients": PLAYER_CLIENTS,
         "fallback_player_clients": FALLBACK_PLAYER_CLIENTS,
         "pot_provider": BGUTIL_URL,
