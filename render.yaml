@@ -24,10 +24,14 @@ services:
     runtime: image
     plan: free
     region: frankfurt
+    autoDeploy: true
     image:
       url: ghcr.io/imputnet/cobalt:11
     healthCheckPath: /
     envVars:
+      # Render web services receive traffic on PORT=10000 by default.
+      - key: API_PORT
+        value: "10000"
       - key: API_URL
         fromService:
           name: sonora-cobalt
@@ -60,9 +64,9 @@ services:
         value: "10"
 
   # Custom Render-safe session generator. The Dockerfile wraps the official
-  # image and enables Chromium no_sandbox because Render image services run
-  # the container as root. It continuously generates fresh PO Tokens and
-  # visitor data; no cookies.txt is needed.
+  # webserver image and enables Chromium no_sandbox because Render runs the
+  # container as root. It continuously generates fresh PO Tokens and visitor
+  # data; no cookies.txt is needed.
   - type: web
     name: sonora-ytsession
     runtime: docker
@@ -70,3 +74,4 @@ services:
     region: frankfurt
     dockerfilePath: ./session-generator/Dockerfile
     healthCheckPath: /token
+    autoDeploy: true
