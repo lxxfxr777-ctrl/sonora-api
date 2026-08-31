@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 import yt_dlp
 
-
 SUPPORTED_FORMATS = {"mp3", "m4a", "opus", "wav"}
 
 
@@ -26,60 +25,50 @@ def validate_youtube_url(url: str) -> str:
     if not url:
         raise InvalidYouTubeURLError("La URL no puede estar vacía.")
 
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
     allowed_hosts = {
         "youtube.com", "www.youtube.com", "m.youtube.com",
         "music.youtube.com", "youtu.be",
     }
 
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
-
     if parsed.scheme not in {"http", "https"} or host not in allowed_hosts:
-        raise InvalidYouTubeURLError(
-            "La URL no parece ser un enlace válido de YouTube."
-        )
-
+        raise InvalidYouTubeURLError("La URL no parece ser un enlace válido de YouTube.")
     return url
 
 
 def _get_cookie_file() -> str | None:
-    explicit = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
-    candidates = [
-        explicit,
+    for candidate in (
+        os.environ.get("YTDLP_COOKIES_FILE", "").strip(),
         "/app/cookies.txt",
         "cookies.txt",
-    ]
-
-    for candidate in candidates:
+    ):
         if candidate and Path(candidate).is_file():
             return candidate
-
     return None
 
 
-def _base_ydl_options() -> dict[str, Any]:
+def _base_ydl_options(player_clients: list[str] | None = None) -> dict[str, Any]:
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "socket_timeout": 30,
+        "retries": 2,
         "extractor_args": {
             "youtube": {
-                # Evitamos depender exclusivamente del cliente web, que suele
-                # ser el primero en recibir comprobaciones anti-bot.
-                "player_client": ["android", "web"],
+                "player_client": player_clients or ["tv", "web_safari", "android"],
             }
         },
     }
 
-    # bgutil-ytdlp-pot-provider se detecta automáticamente cuando está
-    # instalado y su servidor escucha en el puerto local predeterminado 4416.
-    # Para una URL distinta se configura con el argumento oficial del
-    # proveedor externo, no como un po_token.
+    # The installed bgutil plugin automatically connects to the provider at
+    # http://127.0.0.1:4416 when it is running on its default address.
+    # For a non-default provider URL use the provider's own extractor key.
     pot_url = os.environ.get("YTDLP_POT_PROVIDER_URL", "").strip()
     if pot_url and pot_url != "http://127.0.0.1:4416":
-        opts["extractor_args"]["youtube"]["pot"] = [
-            f"youtubepot-bgutilhttp:base_url={pot_url}"
+        opts["extractor_args"]["youtubepot-bgutilhttp"] = [
+            f"base_url={pot_url}"
         ]
 
     cookie_file = _get_cookie_file()
@@ -89,37 +78,66 @@ def _base_ydl_options() -> dict[str, Any]:
     return opts
 
 
-def _run_extract(url: str, download: bool = False, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    validate_youtube_url(url)
-
-    opts = _base_ydl_options()
+def _extract_once(
+    url: str,
+    *,
+    download: bool,
+    player_clients: list[str],
+    extra: dict[str, Any] | None,
+) -> dict[str, Any]:
+    opts = _base_ydl_options(player_clients)
     if extra:
         opts.update(extra)
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=download)
-    except Exception as exc:
-        raise DownloadFailedError(str(exc)) from exc
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=download)
 
     if not isinstance(info, dict):
         raise DownloadFailedError("YouTube no devolvió información válida del video.")
-
     return info
 
 
-def _extract_info(url: str) -> dict[str, Any]:
-    try:
-        return _run_extract(url, download=False)
-    except DownloadFailedError as exc:
-        raise DownloadFailedError(
-            "No se pudo obtener la información del video: "
-            f"{exc}"
-        ) from exc
+def _run_extract(
+    url: str,
+    download: bool = False,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    validate_youtube_url(url)
+
+    # Different YouTube clients are trusted differently. Try groups instead
+    # of forcing every request through the web client that is most frequently
+    # challenged from datacenter IPs.
+    strategies = [
+        ["tv"],
+        ["web_safari"],
+        ["android"],
+        ["ios"],
+    ]
+
+    errors: list[str] = []
+
+    for clients in strategies:
+        try:
+            return _extract_once(
+                url,
+                download=download,
+                player_clients=clients,
+                extra=extra,
+            )
+        except Exception as exc:
+            errors.append(f"{'/'.join(clients)}: {exc}")
+
+    detail = errors[-1] if errors else "Error desconocido."
+    raise DownloadFailedError(detail)
 
 
 def get_video_info(url: str) -> dict[str, Any]:
-    info = _extract_info(url)
+    try:
+        info = _run_extract(url, download=False)
+    except DownloadFailedError as exc:
+        raise DownloadFailedError(
+            "No se pudo obtener la información del video: " + str(exc)
+        ) from exc
 
     normalized = {
         "id": info.get("id"),
@@ -132,10 +150,8 @@ def get_video_info(url: str) -> dict[str, Any]:
 
     try:
         from palette import attach_palette, best_thumbnail_url
-
         if normalized["thumbnail"]:
             normalized["thumbnail"] = best_thumbnail_url(info)
-
         return attach_palette(normalized)
     except Exception:
         return normalized
@@ -158,11 +174,9 @@ def download_audio(
     temp_dir = Path(tempfile.mkdtemp(prefix="yt-audio-"))
 
     try:
-        output_template = str(temp_dir / "%(id)s.%(ext)s")
-
         extra = {
             "format": "bestaudio/best",
-            "outtmpl": output_template,
+            "outtmpl": str(temp_dir / "%(id)s.%(ext)s"),
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": audio_format,
@@ -170,7 +184,6 @@ def download_audio(
         }
 
         info = _run_extract(url, download=True, extra=extra)
-
         title = info.get("title") or "audio"
         uploader = info.get("uploader") or info.get("channel") or ""
 
@@ -181,7 +194,7 @@ def download_audio(
             )
 
         output_file = files[0]
-        if not output_file.exists() or output_file.stat().st_size == 0:
+        if output_file.stat().st_size == 0:
             raise DownloadFailedError("Se generó un archivo de audio vacío.")
 
         if progress_callback:
